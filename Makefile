@@ -7,7 +7,7 @@ up-all:
 	docker compose --profile woocommerce up -d --build --wait
 
 down:
-	docker compose --profile woocommerce down
+	docker compose --profile woocommerce --profile rabbitmq down
 
 migrate:
 	docker compose exec -T api php artisan migrate --force

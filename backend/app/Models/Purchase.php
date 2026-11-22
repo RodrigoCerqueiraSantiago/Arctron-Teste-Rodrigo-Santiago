@@ -11,7 +11,12 @@ class Purchase extends Model
 
     protected function casts(): array
     {
-        return ['purchased_at' => 'datetime'];
+        return [
+            'purchased_at' => 'datetime',
+            'customer_email' => 'encrypted',
+            'customer_cpf' => 'encrypted',
+            'notes' => 'encrypted',
+        ];
     }
 
     public function items(): HasMany

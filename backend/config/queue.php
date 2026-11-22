@@ -1,5 +1,7 @@
 <?php
 
+use App\Queue\ConfirmedRabbitMQQueue;
+
 return [
 
     /*
@@ -33,6 +35,19 @@ return [
 
         'sync' => [
             'driver' => 'sync',
+        ],
+
+        'rabbitmq' => [
+            'driver' => 'rabbitmq',
+            'queue' => env('RABBITMQ_QUEUE', 'woocommerce'),
+            'worker' => ConfirmedRabbitMQQueue::class,
+            'hosts' => [[
+                'host' => env('RABBITMQ_HOST', 'rabbitmq'),
+                'port' => (int) env('RABBITMQ_PORT', 5672),
+                'user' => env('RABBITMQ_USER', 'arctron'),
+                'password' => env('RABBITMQ_PASSWORD', 'change-me-dev-only'),
+                'vhost' => env('RABBITMQ_VHOST', '/'),
+            ]],
         ],
 
         'database' => [

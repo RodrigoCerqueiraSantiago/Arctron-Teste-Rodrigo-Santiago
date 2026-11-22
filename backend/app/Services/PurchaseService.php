@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Customer;
 use App\Models\Product;
 use App\Models\Purchase;
+use App\Support\CustomerCpfIndex;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -46,8 +47,8 @@ class PurchaseService
             }
 
             $customer = Customer::firstOrCreate(
-                ['cpf' => $data['customer']['cpf']],
-                ['name' => $data['customer']['name'], 'email' => $data['customer']['email']]
+                ['cpf_hash' => CustomerCpfIndex::hash($data['customer']['cpf'])],
+                ['cpf' => $data['customer']['cpf'], 'name' => $data['customer']['name'], 'email' => $data['customer']['email']]
             );
             $purchase = Purchase::firstOrCreate(['reference' => $data['reference']], [
                 'customer_id' => $customer->id,

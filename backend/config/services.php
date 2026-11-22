@@ -5,6 +5,7 @@ return [
     'woocommerce' => [
         'webhook_secret' => env('WOOCOMMERCE_WEBHOOK_SECRET'),
         'webhook_url' => env('WOOCOMMERCE_WEBHOOK_URL', 'http://nginx/api/integrations/woocommerce/webhook'),
+        'queue_connection' => env('WOOCOMMERCE_QUEUE_CONNECTION', 'sync'),
     ],
 
     /*

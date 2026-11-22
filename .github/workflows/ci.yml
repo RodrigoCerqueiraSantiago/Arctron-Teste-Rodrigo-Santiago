@@ -36,7 +36,7 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: '8.3'
-          extensions: mbstring, pdo_pgsql, pdo_sqlite, zip
+          extensions: mbstring, pdo_pgsql, pdo_sqlite, sockets, zip
           coverage: none
           tools: composer:v2
       - run: composer install --no-interaction --prefer-dist
@@ -117,9 +117,25 @@ jobs:
         working-directory: frontend
       - run: npm run test:checkout
         working-directory: frontend
+      - name: Testar processamento com RabbitMQ
+        run: |
+          set -o pipefail
+          WOOCOMMERCE_QUEUE_CONNECTION=rabbitmq docker compose --profile rabbitmq up -d --build --wait
+          make test-order | tee /tmp/arctron-queued-order.log
+          order_id="$(sed -n 's/^Pedido WooCommerce criado: \([0-9][0-9]*\)$/\1/p' /tmp/arctron-queued-order.log)"
+          test -n "$order_id"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error -b /tmp/arctron-cookie "http://localhost:8080/api/purchases?reference=woocommerce%3A${order_id}" |
+              jq -e --arg reference "woocommerce:${order_id}" '.total == 1 and .data[0].reference == $reference' >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Pedido não foi processado pela fila" >&2
+          exit 1
       - name: Logs em caso de falha
         if: failure()
-        run: docker compose --profile woocommerce logs --no-color
+        run: docker compose --profile woocommerce --profile rabbitmq logs --no-color
       - name: Limpar volumes do ambiente efêmero da CI
         if: always()
-        run: docker compose --profile woocommerce down -v
+        run: docker compose --profile woocommerce --profile rabbitmq down -v

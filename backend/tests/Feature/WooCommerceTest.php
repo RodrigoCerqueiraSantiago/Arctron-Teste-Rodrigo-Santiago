@@ -1,8 +1,12 @@
 <?php
 
 use App\Integrations\WooCommerce\OrderMapper;
+use App\Jobs\ProcessWooCommercePurchase;
+use App\Models\Purchase;
+use App\Services\PurchaseService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
+use Illuminate\Support\Facades\Bus;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Testing\TestResponse;
 
@@ -53,6 +57,33 @@ it('accepts a signed order and ignores the same reference on resubmission', func
     $this->assertDatabaseCount('purchase_items', 1);
 });
 
+it('queues validated orders when RabbitMQ is enabled', function () {
+    config(['services.woocommerce.queue_connection' => 'rabbitmq']);
+    Bus::fake();
+
+    signedWooRequest(wooOrder())->assertStatus(202)->assertJsonPath('queued', true)
+        ->assertJsonPath('reference', 'woocommerce:42');
+    Bus::assertDispatched(ProcessWooCommercePurchase::class, fn ($job) => $job->connection === 'rabbitmq');
+    $this->assertDatabaseCount('purchases', 0);
+
+    $data = app(OrderMapper::class)->map(wooOrder())->toPurchase();
+    $job = new ProcessWooCommercePurchase($data);
+    $job->handle(app(PurchaseService::class));
+    $job->handle(app(PurchaseService::class));
+    $this->assertDatabaseCount('purchases', 1);
+});
+
+it('does not queue orders with invalid signatures or payloads', function () {
+    config(['services.woocommerce.queue_connection' => 'rabbitmq']);
+    Bus::fake();
+
+    signedWooRequest(wooOrder(), 'wrong-secret')->assertUnauthorized();
+    $order = wooOrder();
+    $order['meta_data'] = [];
+    signedWooRequest($order)->assertUnprocessable();
+    Bus::assertNothingDispatched();
+});
+
 it('rejects invalid signatures', function () {
     signedWooRequest(wooOrder(), 'wrong-secret')->assertUnauthorized();
     $this->assertDatabaseCount('purchases', 0);
@@ -64,7 +95,7 @@ it('rejects an order with no CPF and supports billing cpf', function () {
     signedWooRequest($order)->assertUnprocessable()->assertJsonValidationErrors('customer.cpf');
     $order['billing']['cpf'] = '12345678901';
     signedWooRequest($order)->assertCreated()->assertJsonPath('reference', 'woocommerce:42');
-    $this->assertDatabaseHas('purchases', ['reference' => 'woocommerce:42', 'customer_cpf' => '12345678901']);
+    expect(Purchase::where('reference', 'woocommerce:42')->firstOrFail()->customer_cpf)->toBe('12345678901');
 });
 
 it('accepts the unsigned activation ping without recording a purchase', function () {

@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class PurchasesTest extends TestCase
@@ -127,5 +128,34 @@ class PurchasesTest extends TestCase
         $this->getJson('/api/purchases?reference=0')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.reference', '0');
         $this->getJson('/api/purchases?customer=cliente123%40example.com')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.reference', 'OTHER');
         $this->getJson('/api/purchases?customer=123.456')->assertOk()->assertJsonPath('total', 1)->assertJsonPath('data.0.reference', '0');
+    }
+
+    public function test_personal_data_is_encrypted_and_partial_search_still_works(): void
+    {
+        $this->postJson('/api/purchases', $this->purchase())->assertCreated();
+        $this->postJson('/api/purchases', $this->purchase(['reference' => 'PED-2']))->assertCreated();
+
+        $customer = DB::table('customers')->first();
+        $purchase = DB::table('purchases')->first();
+        $this->assertNotEquals('12345678901', $customer->cpf);
+        $this->assertNotEquals('ana@example.com', $customer->email);
+        $this->assertNotEquals('12345678901', $purchase->customer_cpf);
+        $this->assertNotEquals('ana@example.com', $purchase->customer_email);
+        $this->assertNotEquals('Enviado', $purchase->notes);
+        $this->assertDatabaseCount('customers', 1);
+        $this->getJson('/api/purchases?customer=EXAMPLE')->assertOk()->assertJsonPath('total', 2);
+        $this->getJson('/api/purchases?customer=456.789')->assertOk()->assertJsonPath('total', 2)
+            ->assertJsonPath('data.0.customer_cpf', '12345678901');
+    }
+
+    public function test_personal_data_search_paginates_after_matching(): void
+    {
+        for ($i = 1; $i <= 12; $i++) {
+            $this->postJson('/api/purchases', $this->purchase(['reference' => "PED-$i"]))->assertCreated();
+        }
+
+        $this->getJson('/api/purchases?customer=example&page=2')->assertOk()
+            ->assertJsonPath('total', 12)->assertJsonPath('current_page', 2)
+            ->assertJsonCount(2, 'data');
     }
 }

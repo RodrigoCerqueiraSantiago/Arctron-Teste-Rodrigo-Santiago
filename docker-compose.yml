@@ -17,7 +17,7 @@ services:
     build:
       context: .
       dockerfile: docker/Dockerfile
-    environment:
+    environment: &api_environment
       APP_NAME: Arctron
       APP_ENV: local
       APP_DEBUG: "false"
@@ -35,6 +35,11 @@ services:
       CACHE_STORE: file
       QUEUE_CONNECTION: sync
       WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-change-me-dev-only}
+      WOOCOMMERCE_QUEUE_CONNECTION: ${WOOCOMMERCE_QUEUE_CONNECTION:-sync}
+      RABBITMQ_HOST: rabbitmq
+      RABBITMQ_USER: ${RABBITMQ_USER:-arctron}
+      RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-change-me-dev-only}
+      LOG_CHANNEL: stderr
     depends_on:
       db:
         condition: service_healthy
@@ -43,6 +48,34 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+
+  rabbitmq:
+    image: rabbitmq:4.1-alpine
+    profiles: ["rabbitmq"]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-arctron}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-change-me-dev-only}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_port_connectivity"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  queue-worker:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    profiles: ["rabbitmq"]
+    environment: *api_environment
+    command: ["php", "artisan", "queue:work", "rabbitmq", "--sleep=3", "--tries=3", "--timeout=60"]
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
 
   nginx:
     image: nginx:1.27-alpine
@@ -172,3 +205,4 @@ volumes:
   postgres_data:
   wp_db_data:
   wordpress_data:
+  rabbitmq_data:

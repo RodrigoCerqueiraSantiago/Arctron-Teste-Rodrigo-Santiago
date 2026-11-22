@@ -37,7 +37,7 @@ docker compose exec api php artisan dashboard:create-user
 make seed-woocommerce
 ```
 
-O primeiro comando copia as configurações de exemplo e só é necessário na primeira instalação. Se já existir um `.env`, não o sobrescreva: ele contém a configuração do ambiente. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar todos os serviços antes da migration.
+O primeiro comando copia as configurações de exemplo e só é necessário na primeira instalação. Se já existir um `.env`, não o sobrescreva: ele contém a configuração do ambiente. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar os serviços principais e a loja antes da migration.
 
 A primeira execução pode demorar por causa dos downloads. Os dados permanecem nos volumes quando os serviços são reiniciados.
 
@@ -85,8 +85,16 @@ Se uma rota da API retornar `401`, faça login no dashboard. Um `404` em `localh
 - O **administrador** pode consultar os dados das compras e cadastrar compras pela API.
 - O **leitor** pode consultar o dashboard e as compras, mas não recebe CPF, e-mail ou observações. A busca por cliente considera apenas o nome.
 - O webhook usa uma assinatura própria e não depende do login no dashboard. O acesso pela interface usa sessão e proteção CSRF; as tentativas de login são limitadas. O Nginx da API não registra logs de acesso com os filtros pesquisados.
+- CPF e e-mail dos clientes, além do CPF, e-mail e observações gravados em cada compra, são criptografados pela aplicação. Um índice HMAC do CPF permite identificar o mesmo cliente sem guardar esse campo em texto puro. Nomes continuam em texto puro.
+- A busca parcial de e-mail e CPF é feita pela aplicação após descriptografar os candidatos, preservando os filtros. Ela pode ser lenta em bases grandes.
 
-O projeto é um ambiente de demonstração. CPF e e-mail não são criptografados no banco, e desativar o log de acesso não substitui uma revisão dos outros logs. Para produção, ainda seriam necessários certificados confiáveis, HTTPS também para a loja, novas credenciais e `APP_KEY`, além de proteção de rede e políticas de retenção.
+O projeto é um ambiente de demonstração. O banco do WooCommerce permanece separado e pode conter dados pessoais sem essa criptografia. Backups anteriores, logs de transações e páginas antigas do PostgreSQL também podem conter os dados originais. Desativar o log de acesso não substitui uma revisão dos outros logs. Para produção, ainda seriam necessários certificados confiáveis, HTTPS também para a loja, credenciais próprias, proteção de rede, políticas de retenção e uma estratégia de gestão de chaves.
+
+### Atualização de um ambiente existente
+
+Antes de atualizar, faça um backup testado do PostgreSQL e guarde a `APP_KEY` atual em local seguro. A migration criptografa os dados já existentes; execute-a com a aplicação sem receber novas compras. **Não altere a chave de um ambiente com dados criptografados:** ela é necessária para lê-los e para identificar clientes pelo CPF. A troca da chave exige um processo próprio de migração dos dados e do índice.
+
+Depois de atualizar o código e a imagem da API, execute `make migrate`. Não use `make fresh` para essa atualização.
 
 ### HTTPS local (opcional)
 
@@ -107,7 +115,7 @@ Para simular um pedido sem passar pela loja:
 make simulate-order ARGS="--reference=987654321"
 ```
 
-Entre no dashboard e busque `woocommerce:987654321`. A referência é o ID numérico do pedido; se for omitida, o comando gera uma. Repetir o mesmo ID retorna `created: false`, sem criar outra compra. O parâmetro `--url` permite escolher outro destino acessível pelo contêiner da API.
+Entre no dashboard e busque `woocommerce:987654321`. A referência é o ID numérico do pedido; se for omitida, o comando gera uma. No modo síncrono, repetir o mesmo ID retorna `created: false`. Na fila, o reenvio pode retornar `202` novamente, mas não cria outra compra. O parâmetro `--url` permite escolher outro destino acessível pelo contêiner da API.
 
 Para gerar um pedido na loja de teste pelo terminal:
 
@@ -136,13 +144,33 @@ O plugin em `docker/woocommerce/allow-internal-webhook.php` permite o envio ao h
 
 A loja tem um tema demonstrativo inspirado nas cores do Brasil, sem vínculo com a CBF. Após alterar `frontend/src/store.css`, execute `npm run build:store` dentro de `frontend` para atualizar o CSS do tema.
 
+### Fila RabbitMQ (opcional)
+
+Por padrão, o webhook continua processando a compra imediatamente. Para usar a fila, primeiro inicie o broker e o worker, depois configure `WOOCOMMERCE_QUEUE_CONNECTION=rabbitmq` no `.env` e recrie a API:
+
+```sh
+docker compose --profile rabbitmq up -d --build rabbitmq queue-worker
+docker compose up -d --build api
+```
+
+O webhook valida a assinatura e os dados antes de publicar uma mensagem criptografada. A resposta `202` confirma o recebimento pela fila, não a conclusão da compra; o dashboard pode demorar alguns segundos para atualizá-la. Se o broker não aceitar a mensagem, a API retorna erro para que o WooCommerce possa tentar novamente. O worker tenta processar falhas novamente e mantém a regra de referência única.
+
+Para acompanhar a operação local:
+
+```sh
+docker compose --profile rabbitmq logs -f queue-worker rabbitmq
+docker compose exec -T api php artisan queue:failed
+```
+
+Os eventos de enfileiramento, processamento, assinatura inválida e falha final são registrados sem CPF ou e-mail no contexto do evento. Outros erros e seus logs também precisam ser revisados antes de usar dados reais. O RabbitMQ usa volume persistente e credenciais de exemplo; altere-as antes de uso fora do ambiente local. `make down` para os serviços sem apagar os volumes.
+
 ## API
 
 - `GET /api/csrf`, `POST /api/login`, `GET /api/me` e `POST /api/logout`: sessão do dashboard; login e logout exigem `X-CSRF-TOKEN`.
 - `POST /api/purchases`: exclusivo de administrador e exige `X-CSRF-TOKEN`. A primeira criação retorna `201`; reenvios retornam `200` e `created: false`.
 - `GET /api/purchases`: lista paginada, com filtros opcionais `reference`, `customer` (nome, email ou CPF), `date_from`, `date_to` (`YYYY-MM-DD`, UTC), `amount_min`, `amount_max` (reais) e `page`.
 - `GET /api/dashboard`: quantidade, valores e descontos totais/médios; agregações por cliente e produto.
-- `POST /api/integrations/woocommerce/webhook`: assinatura HMAC-SHA256 em Base64 do corpo bruto, no cabeçalho `X-WC-Webhook-Signature`, e tópico em `X-WC-Webhook-Topic`. Eventos de outros estados são ignorados. O endpoint anterior `/api/webhooks/woocommerce` permanece compatível.
+- `POST /api/integrations/woocommerce/webhook`: assinatura HMAC-SHA256 em Base64 do corpo bruto, no cabeçalho `X-WC-Webhook-Signature`, e tópico em `X-WC-Webhook-Topic`. Eventos de outros estados são ignorados. No modo síncrono retorna `201` na criação e `200` para duplicatas; no modo RabbitMQ retorna `202` após enfileirar. O endpoint anterior `/api/webhooks/woocommerce` permanece compatível.
 
 Para enviar uma compra diretamente, entre com uma conta de administrador. Exemplo em shell com `jq`:
 
@@ -192,7 +220,7 @@ make down       # preserva volumes
 
 Para recriar as tabelas da aplicação, `make fresh CONFIRM=fresh` **apaga todos os dados do banco da aplicação**. Não execute em ambiente com dados que deseje preservar. Os volumes da loja não são apagados por esse comando.
 
-A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. Confira o resultado da execução mais recente na aba **Actions** do repositório.
+A configuração do GitHub Actions inclui os testes, verificações de código, builds, checkout e processamento com RabbitMQ. Confira o resultado da execução mais recente na aba **Actions** do repositório.
 
 Para rodar o teste de checkout localmente, com a loja configurada e contas de administrador e leitor criadas:
 
@@ -216,7 +244,7 @@ O teste cria um pedido fictício que permanece nos bancos da loja e da aplicaç�
 - A referência da compra tem índice único. Os itens são gravados em transação, e um reenvio preserva a compra original.
 - Os valores são armazenados em centavos para evitar erros de representação no banco. O valor da compra pode ser diferente da soma dos produtos por causa de descontos, frete ou taxas.
 - `OrderMapper` transforma os dados do WooCommerce antes de enviá-los ao serviço de compras. Ele aceita CPF em `billing.cpf` ou nos metadados `_billing_cpf`, `billing_cpf` e `cpf`. Se o CPF estiver ausente ou fora do formato esperado, o webhook retorna `422`. Outras lojas podem precisar de um campo próprio para coletá-lo.
-- A loja é opcional para testar a API: o comando de simulação também envia um webhook assinado. O projeto usa REST e processamento síncrono, sem broker de mensagens.
+- A loja é opcional para testar a API: o comando de simulação também envia um webhook assinado. O projeto usa REST, com processamento síncrono por padrão e RabbitMQ opcional.
 
 ## Troubleshooting
 
