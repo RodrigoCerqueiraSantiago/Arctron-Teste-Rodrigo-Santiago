@@ -1,0 +1,14 @@
+@import "tailwindcss";
+
+@theme {
+  --color-navy: #102449;
+  --color-navy-light: #1b3c70;
+  --color-pitch: #087c55;
+  --color-gold: #f7d447;
+}
+
+@layer base {
+  body { font-family: "Segoe UI", Arial, sans-serif; color: #172a45; background: #f3f6fa; }
+  button { cursor: pointer; }
+  button:disabled { cursor: not-allowed; }
+}

@@ -1,0 +1,125 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_DB: arctron_test
+          POSTGRES_USER: arctron
+          POSTGRES_PASSWORD: change-me-dev-only
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U arctron -d arctron_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      APP_ENV: testing
+      APP_KEY: base64:ZGV2LW9ubHktY2hhbmdlLW1lLWFyY3Ryb24ta2V5LTE=
+      DB_CONNECTION: pgsql
+      DB_HOST: 127.0.0.1
+      DB_PORT: 5432
+      DB_DATABASE: arctron_test
+      DB_USERNAME: arctron
+      DB_PASSWORD: change-me-dev-only
+      WOOCOMMERCE_WEBHOOK_SECRET: change-me-dev-only
+    steps:
+      - uses: actions/checkout@v4
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: '8.3'
+          extensions: mbstring, pdo_pgsql, pdo_sqlite, zip
+          coverage: none
+          tools: composer:v2
+      - run: composer install --no-interaction --prefer-dist
+        working-directory: backend
+      - run: vendor/bin/pint --test
+        working-directory: backend
+      - run: vendor/bin/phpstan analyse --no-progress --memory-limit=512M
+        working-directory: backend
+      - run: vendor/bin/pest
+        working-directory: backend
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npm run lint && npm run build && npm run build:store
+        working-directory: frontend
+
+  docker-smoke:
+    runs-on: ubuntu-latest
+    env:
+      E2E_LOGIN_EMAIL: ci-admin@example.test
+      E2E_READER_EMAIL: ci-reader@example.test
+    steps:
+      - uses: actions/checkout@v4
+      - run: cp .env.example .env
+      - run: docker compose config --quiet
+      - run: docker compose up -d --build --wait
+      - run: make migrate
+      - name: Criar usuário temporário da CI
+        run: |
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          echo "E2E_LOGIN_PASSWORD=$password" >> "$GITHUB_ENV"
+          echo "E2E_READER_PASSWORD=$password" >> "$GITHUB_ENV"
+          docker compose exec -T -e E2E_LOGIN_PASSWORD="$password" api php artisan dashboard:create-user \
+            --name="CI" --email="$E2E_LOGIN_EMAIL" --role=admin --password-env=E2E_LOGIN_PASSWORD
+          docker compose exec -T -e E2E_LOGIN_PASSWORD="$password" api php artisan dashboard:create-user \
+            --name="Leitor CI" --email="$E2E_READER_EMAIL" --role=reader --password-env=E2E_LOGIN_PASSWORD
+      - run: curl --fail --show-error http://127.0.0.1:8080/up
+      - run: make simulate-order ARGS="--reference=987654321"
+      - name: Confirmar compra no serviço
+        run: |
+          umask 077
+          csrf="$(curl --fail --silent --show-error -c /tmp/arctron-cookie http://localhost:8080/api/csrf | jq -r .token)"
+          body="$(jq -n --arg email "$E2E_LOGIN_EMAIL" '{email: $email, password: env.E2E_LOGIN_PASSWORD}')"
+          curl --fail --silent --show-error -b /tmp/arctron-cookie -c /tmp/arctron-cookie \
+            -H 'Content-Type: application/json' -H 'Accept: application/json' -H "X-CSRF-TOKEN: $csrf" \
+            --data "$body" http://localhost:8080/api/login >/dev/null
+          curl --fail --silent --show-error -b /tmp/arctron-cookie 'http://localhost:8080/api/purchases?reference=woocommerce%3A987654321' | \
+            jq -e '.total == 1 and .data[0].reference == "woocommerce:987654321"'
+      - name: Configurar loja e gerar pedido real
+        run: |
+          set -o pipefail
+          make seed-woocommerce
+          make test-order | tee /tmp/arctron-order.log
+          order_id="$(sed -n 's/^Pedido WooCommerce criado: \([0-9][0-9]*\)$/\1/p' /tmp/arctron-order.log)"
+          test -n "$order_id"
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent --show-error -b /tmp/arctron-cookie "http://localhost:8080/api/purchases?reference=woocommerce%3A${order_id}" |
+              jq -e --arg reference "woocommerce:${order_id}" '.total == 1 and .data[0].reference == $reference' >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Pedido WooCommerce não chegou à API" >&2
+          exit 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - run: npm run test:checkout
+        working-directory: frontend
+      - name: Logs em caso de falha
+        if: failure()
+        run: docker compose --profile woocommerce logs --no-color
+      - name: Limpar volumes do ambiente efêmero da CI
+        if: always()
+        run: docker compose --profile woocommerce down -v

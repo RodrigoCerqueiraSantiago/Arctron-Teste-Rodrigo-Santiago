@@ -1,0 +1,174 @@
+services:
+  db:
+    image: postgres:17-alpine
+    environment:
+      POSTGRES_DB: ${DB_DATABASE:-arctron}
+      POSTGRES_USER: ${DB_USERNAME:-arctron}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-change-me-dev-only}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 3s
+      timeout: 3s
+      retries: 30
+
+  api:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile
+    environment:
+      APP_NAME: Arctron
+      APP_ENV: local
+      APP_DEBUG: "false"
+      APP_KEY: ${APP_KEY:-base64:ZGV2LW9ubHktY2hhbmdlLW1lLWFyY3Ryb24ta2V5LTE=}
+      APP_URL: http://nginx
+      DB_CONNECTION: pgsql
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_DATABASE: ${DB_DATABASE:-arctron}
+      DB_USERNAME: ${DB_USERNAME:-arctron}
+      DB_PASSWORD: ${DB_PASSWORD:-change-me-dev-only}
+      SESSION_DRIVER: database
+      SESSION_ENCRYPT: "true"
+      SESSION_SECURE_COOKIE: ${SESSION_SECURE_COOKIE:-false}
+      CACHE_STORE: file
+      QUEUE_CONNECTION: sync
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-change-me-dev-only}
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "php", "-r", "exit(@fsockopen('127.0.0.1', 9000) ? 0 : 1);"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  nginx:
+    image: nginx:1.27-alpine
+    ports:
+      - "127.0.0.1:8080:80"
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./backend/public:/var/www/html/public:ro
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/up"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    environment:
+      API_PROXY_TARGET: http://nginx
+    ports:
+      - "127.0.0.1:5173:5173"
+    depends_on:
+      nginx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:5173/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  tls:
+    image: nginx:1.27-alpine
+    profiles: ["tls"]
+    ports:
+      - "127.0.0.1:8443:443"
+    volumes:
+      - ./docker/nginx-tls.conf:/etc/nginx/conf.d/default.conf:ro
+      - ${TLS_CERT_PATH:-./tls/fullchain.pem}:/etc/nginx/tls/fullchain.pem:ro
+      - ${TLS_KEY_PATH:-./tls/privkey.pem}:/etc/nginx/tls/privkey.pem:ro
+    depends_on:
+      nginx:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+
+  wp-db:
+    image: mariadb:11
+    profiles: ["woocommerce"]
+    environment:
+      MARIADB_DATABASE: ${WP_DB_NAME:-woocommerce}
+      MARIADB_USER: ${WP_DB_USER:-woocommerce}
+      MARIADB_PASSWORD: ${WP_DB_PASSWORD:-change-me-dev-only}
+      MARIADB_ROOT_PASSWORD: ${WP_DB_ROOT_PASSWORD:-change-me-dev-only}
+    volumes:
+      - wp_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  mailpit:
+    image: axllent/mailpit:v1.27.8
+    profiles: ["woocommerce"]
+    ports:
+      - "127.0.0.1:8025:8025"
+
+  wordpress:
+    image: wordpress:php8.3-apache
+    profiles: ["woocommerce"]
+    ports:
+      - "127.0.0.1:8081:80"
+    environment: &wp_environment
+      WORDPRESS_DB_HOST: wp-db:3306
+      WORDPRESS_DB_NAME: ${WP_DB_NAME:-woocommerce}
+      WORDPRESS_DB_USER: ${WP_DB_USER:-woocommerce}
+      WORDPRESS_DB_PASSWORD: ${WP_DB_PASSWORD:-change-me-dev-only}
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./docker/woocommerce/allow-internal-webhook.php:/var/www/html/wp-content/mu-plugins/allow-internal-webhook.php:ro
+      - ./docker/woocommerce/checkout-and-mail.php:/var/www/html/wp-content/mu-plugins/checkout-and-mail.php:ro
+      - ./docker/woocommerce/arctron-store:/var/www/html/wp-content/themes/arctron-store:ro
+    depends_on:
+      wp-db:
+        condition: service_healthy
+      mailpit:
+        condition: service_started
+    healthcheck:
+      test: ["CMD-SHELL", "test -f /var/www/html/wp-includes/version.php && curl -fsS http://127.0.0.1/wp-login.php >/dev/null"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+
+  wpcli:
+    image: wordpress:cli
+    profiles: ["woocommerce"]
+    user: "33:33"
+    working_dir: /var/www/html
+    entrypoint: ["sh"]
+    environment:
+      <<: *wp_environment
+      WP_ADMIN_USER: ${WP_ADMIN_USER:-admin}
+      WP_ADMIN_PASSWORD: ${WP_ADMIN_PASSWORD:-change-me-dev-only}
+      WP_ADMIN_EMAIL: ${WP_ADMIN_EMAIL:-admin@example.test}
+      WP_URL: ${WP_URL:-http://localhost:8081}
+      WOOCOMMERCE_WEBHOOK_SECRET: ${WOOCOMMERCE_WEBHOOK_SECRET:-change-me-dev-only}
+    volumes:
+      - wordpress_data:/var/www/html
+      - ./docker/woocommerce:/scripts:ro
+      - ./docker/woocommerce/allow-internal-webhook.php:/var/www/html/wp-content/mu-plugins/allow-internal-webhook.php:ro
+      - ./docker/woocommerce/checkout-and-mail.php:/var/www/html/wp-content/mu-plugins/checkout-and-mail.php:ro
+      - ./docker/woocommerce/arctron-store:/var/www/html/wp-content/themes/arctron-store:ro
+    depends_on:
+      wp-db:
+        condition: service_healthy
+      wordpress:
+        condition: service_healthy
+      nginx:
+        condition: service_healthy
+    command: ["-c", "sleep infinity"]
+
+volumes:
+  postgres_data:
+  wp_db_data:
+  wordpress_data:
