@@ -46,10 +46,18 @@ wp option update woocommerce_price_num_decimals 2
 wp option update woocommerce_default_country BR:SP
 wp option update woocommerce_cod_settings '{"enabled":"yes","title":"Pagamento de teste na entrega","description":"Simulação: nenhum pagamento real será cobrado.","instructions":"Pedido de teste. Nenhum pagamento será cobrado.","enable_for_methods":[]}' --format=json
 wp option update woocommerce_onboarding_profile '{"completed":true,"skipped":true}' --format=json
-task_list_hidden="$(wp option get woocommerce_task_list_hidden)"
-if [ "$task_list_hidden" != yes ]; then
-    wp option update woocommerce_task_list_hidden yes
-fi
+wp eval '
+$hidden = get_option("woocommerce_task_list_hidden_lists", array());
+if (!is_array($hidden)) {
+    WP_CLI::error("Invalid hidden task lists option.");
+}
+if (!in_array("setup", $hidden, true)) {
+    $hidden[] = "setup";
+    if (!update_option("woocommerce_task_list_hidden_lists", $hidden)) {
+        WP_CLI::error("Could not hide the setup task list.");
+    }
+}
+'
 wp rewrite structure '/%postname%/' --hard
 wp rewrite flush --hard
 

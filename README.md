@@ -37,7 +37,7 @@ docker compose exec api php artisan dashboard:create-user
 make seed-woocommerce
 ```
 
-O primeiro comando copia as configurações de exemplo. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar todos os serviços antes da migration.
+O primeiro comando copia as configurações de exemplo e só é necessário na primeira instalação. Se já existir um `.env`, não o sobrescreva: ele contém a configuração do ambiente. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar todos os serviços antes da migration.
 
 A primeira execução pode demorar por causa dos downloads. Os dados permanecem nos volumes quando os serviços são reiniciados.
 
@@ -45,14 +45,40 @@ Ao criar o usuário, escolha `admin` e informe nome, e-mail e senha. A senha pre
 
 | Serviço | Endereço |
 |---|---|
-| Dashboard | http://localhost:5173 |
-| API e healthcheck | http://localhost:8080/api/purchases e http://localhost:8080/up |
+| Login e dashboard | http://localhost:5173 |
+| API de compras | http://localhost:8080/api/purchases |
+| Indicadores da API | http://localhost:8080/api/dashboard |
+| Healthcheck | http://localhost:8080/up |
 | Contrato OpenAPI | http://localhost:8080/openapi.yaml |
 | Loja WooCommerce | http://localhost:8081 |
 | Administração WordPress | http://localhost:8081/wp-admin |
 | E-mails de teste (Mailpit) | http://localhost:8025 |
 
 Para entrar no WordPress local, use `admin` e `change-me-dev-only`. Essas credenciais e as configurações de exemplo são apenas para desenvolvimento. Altere o `.env` antes da primeira inicialização e não o envie ao repositório. O usuário do WordPress é salvo no banco: mudar a variável depois não altera a conta já criada.
+
+As portas são de serviços diferentes: `8081` é a loja, `5173` é o login e o dashboard e `8080` é a API Laravel. As rotas `/api/purchases` e `/api/dashboard` não existem na porta da loja.
+
+Para consultar essas rotas no navegador, primeiro entre no dashboard com o usuário criado acima e depois abra os links da API na tabela. Use `localhost` nos dois endereços para compartilhar a sessão. Sem login, a API retorna `401`. As rotas retornam JSON; a interface visual fica no dashboard.
+
+## Roteiro para a apresentação
+
+Antes de apresentar:
+
+1. Inicie o Docker e, na pasta do projeto, confira os serviços com `docker compose ps`. Se o ambiente já foi configurado e estiver parado, execute `make up-all`. No Windows, os comandos `make` podem ser executados pelo Git Bash.
+2. Acesse http://localhost:5173 e entre no dashboard. Se ainda não houver uma conta, execute `docker compose exec api php artisan dashboard:create-user`, escolha `admin` e crie sua senha. Essa conta é diferente do usuário do WordPress.
+3. Abra também a loja em http://localhost:8081/shop/ e o Mailpit em http://localhost:8025.
+
+Durante a demonstração:
+
+1. Na loja, adicione um produto ao carrinho, confira o total e finalize a compra com dados fictícios e **Pagamento de teste na entrega**.
+2. Anote o número do pedido. Com o pedido processado, o WooCommerce envia um webhook assinado para a API Laravel, que grava a compra no PostgreSQL.
+3. No dashboard, busque por `woocommerce:<número do pedido>`. Mostre a compra, os filtros e os indicadores de totais e médias. O dashboard consulta a API Laravel, não a API do WooCommerce.
+4. No mesmo navegador autenticado, abra http://localhost:8080/api/purchases e http://localhost:8080/api/dashboard para mostrar as respostas JSON. Use `localhost` tanto no dashboard quanto na API.
+5. Se desejar, mostre a confirmação no Mailpit. As mensagens ficam no ambiente de teste; não são entregues a endereços reais.
+
+Um reenvio com a mesma referência não cria uma segunda compra. Para demonstrar sem passar pelo checkout, use `make simulate-order ARGS="--reference=987654321"` e busque `woocommerce:987654321`. Se um pedido da loja não aparecer, confira seu status e execute as ações agendadas indicadas em [Testar a integração](#testar-a-integração).
+
+Se uma rota da API retornar `401`, faça login no dashboard. Um `404` em `localhost:8081/api/...` indica que a rota foi aberta na porta da loja; use a porta `8080`. O endpoint de login é `POST /api/login`, não uma página para abrir diretamente no navegador.
 
 ## Acesso e proteção de dados
 
@@ -166,7 +192,7 @@ make down       # preserva volumes
 
 Para recriar as tabelas da aplicação, `make fresh CONFIRM=fresh` **apaga todos os dados do banco da aplicação**. Não execute em ambiente com dados que deseje preservar. Os volumes da loja não são apagados por esse comando.
 
-A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. A execução no GitHub ainda precisa ser verificada após publicar o repositório.
+A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. Confira o resultado da execução mais recente na aba **Actions** do repositório. Na última execução, o job de qualidade passou, mas o teste Docker falhou ao configurar uma opção antiga do WooCommerce; o checkout da CI não chegou a ser executado. A correção foi testada localmente em uma instalação limpa, mas precisa ser enviada ao GitHub e confirmada em uma nova execução.
 
 Para rodar o teste de checkout localmente, com a loja configurada e contas de administrador e leitor criadas:
 
