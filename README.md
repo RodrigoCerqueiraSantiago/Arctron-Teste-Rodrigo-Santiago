@@ -1,16 +1,33 @@
 # Arctron Analytics
 
-Dashboard de compras com Laravel, React e PostgreSQL, com integração WooCommerce por webhook. Todo o ambiente de desenvolvimento é reproduzível com Docker Compose. O visual é demonstrativo e não representa uma identidade oficial.
+Projeto para o desafio fullstack da Arctron. O dashboard lista compras, permite buscar por referência, cliente, data e valor e mostra os totais e médias das transações.
+
+A API foi feita em Laravel, o frontend em React e o banco é PostgreSQL. Para testar a integração, há uma loja WooCommerce no Docker: quando um pedido é processado, ela envia um webhook para a API e a compra aparece no dashboard.
+
+```text
+Loja WooCommerce → webhook → API Laravel → PostgreSQL → dashboard React
+```
+
+## Dados do dashboard
+
+O dashboard reúne os dados das compras e apresenta indicadores para apoiar decisões. As informações ficam organizadas em:
+
+- `purchases`: referência, data, valor, desconto e observações da compra.
+- `products`: produtos vendidos.
+- `customers`: clientes que fizeram as compras.
+- `purchase_items`: produtos, quantidades e preços de cada compra.
+
+Cada referência de compra é única. Se a mesma referência for enviada novamente, a API mantém a compra original e não cria outra.
 
 ## Pré-requisitos
 
-- Docker com Docker Compose v2 e plugin `docker compose`.
-- GNU Make, shell POSIX, `curl`, `jq` e acesso à internet para baixar imagens e o plugin.
-- Portas 8080, 5173 e, para a loja opcional, 8081 e 8025 disponíveis.
+- Docker e Docker Compose v2.
+- GNU Make, Bash (ou Git Bash no Windows), `curl` e `jq`.
+- Acesso à internet e as portas 8080, 5173, 8081 e 8025 livres.
 
 ## Início rápido
 
-Na raiz do projeto:
+Na pasta do projeto, execute:
 
 ```sh
 cp .env.example .env
@@ -20,9 +37,11 @@ docker compose exec api php artisan dashboard:create-user
 make seed-woocommerce
 ```
 
-`make up` sobe apenas API, PostgreSQL, Nginx e frontend. `make seed-woocommerce` inicia também o profile da loja e configura WordPress, cinco produtos e webhooks. Alternativamente, use `make up-all` antes da migration para iniciar todos os serviços. A primeira execução precisa baixar imagens, dependências e o WooCommerce; o tempo depende da conexão. Em reinicializações os dados são preservados.
+O primeiro comando copia as configurações de exemplo. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar todos os serviços antes da migration.
 
-No comando de criação de usuário, escolha `admin` para o primeiro acesso e informe uma senha com no mínimo 12 caracteres e no máximo 72 bytes; ela é solicitada sem exibição e armazenada como hash. Execute novamente e escolha `reader` para criar um leitor. Não há usuário ou senha padrão do dashboard. Acesse o endereço abaixo com as credenciais criadas.
+A primeira execução pode demorar por causa dos downloads. Os dados permanecem nos volumes quando os serviços são reiniciados.
+
+Ao criar o usuário, escolha `admin` e informe nome, e-mail e senha. A senha precisa ter pelo menos 12 caracteres e no máximo 72 bytes. Para criar um usuário de leitura, execute o mesmo comando e escolha `reader`. O dashboard não tem usuário padrão.
 
 | Serviço | Endereço |
 |---|---|
@@ -33,50 +52,63 @@ No comando de criação de usuário, escolha `admin` para o primeiro acesso e in
 | Administração WordPress | http://localhost:8081/wp-admin |
 | E-mails de teste (Mailpit) | http://localhost:8025 |
 
-O acesso de **desenvolvimento** padrão à loja é usuário `admin` e senha `change-me-dev-only`. As variáveis da raiz são aplicadas aos contêineres via Compose; altere `.env` **antes da primeira inicialização**. `WOOCOMMERCE_WEBHOOK_SECRET` é compartilhado entre API e loja. A chave da aplicação e senhas fornecidas são públicas e destinadas apenas a desenvolvimento. Não publique `.env` nem use esses valores em produção. O primeiro cadastro de administrador fica no banco WordPress: alterar as variáveis depois não altera automaticamente esse usuário.
+Para entrar no WordPress local, use `admin` e `change-me-dev-only`. Essas credenciais e as configurações de exemplo são apenas para desenvolvimento. Altere o `.env` antes da primeira inicialização e não o envie ao repositório. O usuário do WordPress é salvo no banco: mudar a variável depois não altera a conta já criada.
 
 ## Acesso e proteção de dados
 
-- **Administrador:** consulta indicadores, compras, CPF, email e observações; pode cadastrar compras pela API.
-- **Leitor:** consulta indicadores e compras, mas não recebe CPF, email ou observações. A busca por cliente considera apenas o nome; cadastro de compras retorna `403`.
-- A API e o dashboard exigem sessão autenticada; o webhook permanece independente e exige assinatura HMAC. O login limita tentativas e renova a sessão. Operações de escrita usam token CSRF. As sessões ficam no banco com conteúdo criptografado, cookie HttpOnly e respostas `no-store`. O Nginx da API não grava logs de acesso, para não registrar filtros com CPF ou email.
+- O **administrador** pode consultar os dados das compras e cadastrar compras pela API.
+- O **leitor** pode consultar o dashboard e as compras, mas não recebe CPF, e-mail ou observações. A busca por cliente considera apenas o nome.
+- O webhook usa uma assinatura própria e não depende do login no dashboard. O acesso pela interface usa sessão e proteção CSRF; as tentativas de login são limitadas. O Nginx da API não registra logs de acesso com os filtros pesquisados.
 
-Para experimentar HTTPS **local** no dashboard, forneça certificado e chave válidos para `localhost`, acessíveis ao Docker. Mantenha a chave privada fora do repositório. Configure `TLS_CERT_PATH`, `TLS_KEY_PATH` e `SESSION_SECURE_COOKIE=true` no `.env`, reinicie a API e inicie o proxy:
+O projeto é um ambiente de demonstração. CPF e e-mail não são criptografados no banco, e desativar o log de acesso não substitui uma revisão dos outros logs. Para produção, ainda seriam necessários certificados confiáveis, HTTPS também para a loja, novas credenciais e `APP_KEY`, além de proteção de rede e políticas de retenção.
+
+### HTTPS local (opcional)
+
+Para testar o dashboard com HTTPS, forneça um certificado e uma chave válidos para `localhost`, acessíveis ao Docker. Não envie a chave privada ao repositório. Configure `TLS_CERT_PATH`, `TLS_KEY_PATH` e `SESSION_SECURE_COOKIE=true` no `.env` e execute:
 
 ```sh
 docker compose up -d api
 docker compose --profile tls up -d tls
 ```
 
-Abra `https://localhost:8443`. Certificados não confiáveis geram aviso no navegador; não ignore avisos em produção. Com cookie seguro habilitado, o dashboard HTTP deixa de manter o login; para voltar ao modo local HTTP, defina `SESSION_SECURE_COOKIE=false` e recrie a API. Esse proxy protege apenas o dashboard e a API; a loja de teste continua em HTTP local. As portas do Compose ficam vinculadas a `127.0.0.1`.
+Depois, abra `https://localhost:8443`. O proxy cobre o dashboard e a API; a loja continua em HTTP local. Para voltar ao dashboard HTTP, defina `SESSION_SECURE_COOKIE=false` e recrie a API. Com cookie seguro habilitado, o login não funciona por HTTP.
 
-O Compose é demonstrativo, não uma implantação de produção: antes de publicar, use certificados confiáveis, HTTPS também para a loja, um proxy e frontend adequados à produção, credenciais e `APP_KEY` próprios, proteção de rede, políticas de retenção e auditoria de logs. Desativar o log de acesso não substitui uma revisão completa dos demais logs nem criptografa CPF e email no banco.
+## Testar a integração
 
-## Verificar a integração
-
-Simulação assinada, sem depender da loja:
+Para simular um pedido sem passar pela loja:
 
 ```sh
 make simulate-order ARGS="--reference=987654321"
 ```
 
-O argumento `--reference` é o ID numérico do pedido WooCommerce; omitido, é gerado automaticamente. `--url` permite outro destino acessível pelo contêiner `api`. Repetir o mesmo ID deve retornar `created: false`. Entre no dashboard e busque `woocommerce:987654321`.
+Entre no dashboard e busque `woocommerce:987654321`. A referência é o ID numérico do pedido; se for omitida, o comando gera uma. Repetir o mesmo ID retorna `created: false`, sem criar outra compra. O parâmetro `--url` permite escolher outro destino acessível pelo contêiner da API.
 
-Para criar um pedido real **na loja de teste**:
+Para gerar um pedido na loja de teste pelo terminal:
 
 ```sh
 make test-order
 ```
 
-O script cria um pedido `processing` com dados fictícios e executa as ações agendadas. Ele mostra o ID; busque `woocommerce:<ID>` no dashboard ou na API. A loja envia os webhooks à URL interna `http://nginx/api/integrations/woocommerce/webhook`. Não é necessário expor a API publicamente. O plugin de desenvolvimento em `docker/woocommerce/allow-internal-webhook.php` permite que WordPress acesse somente esse host interno, contornando a proteção padrão contra destinos privados.
+O comando cria um pedido fictício com status `processing` e informa o ID. Busque `woocommerce:<ID>` no dashboard ou na API.
 
-Para testar pela interface, acesse http://localhost:8081/shop/, adicione um produto, entre em **Carrinho** e depois em **Finalizar pedido**. Preencha os dados fictícios e o CPF com 11 dígitos. Selecione **Pagamento de teste na entrega**: não há cobrança real. Após finalizar, consulte `woocommerce:<número do pedido>` no dashboard e o e-mail de confirmação no Mailpit. O checkout de blocos coleta o CPF e o salva como `_billing_cpf`; a validação confere apenas o formato de 11 dígitos, não os dígitos verificadores. Caso o webhook ainda esteja na fila, execute `docker compose exec -T wpcli wp action-scheduler run --batch-size=100 --batches=5`.
+Também é possível testar pelo navegador:
 
-A loja demonstrativa tem tema próprio inspirado nas cores do Brasil, sem vínculo com a CBF. A interface usa português e reais, e o cabeçalho mostra a quantidade de itens e o total do carrinho. O CSS compilado do tema já está incluído; após alterar `frontend/src/store.css`, gere-o novamente com `cd frontend` e `npm run build:store`.
+1. Abra http://localhost:8081/shop/ e adicione um produto ao carrinho.
+2. Finalize o pedido com dados fictícios e um CPF de 11 dígitos.
+3. Escolha **Pagamento de teste na entrega**. Nenhum pagamento será cobrado.
+4. Busque `woocommerce:<número do pedido>` no dashboard e confira o e-mail no Mailpit.
 
-O Mailpit captura os e-mails enviados pela loja e **não os entrega a destinatários reais**. A interface é vinculada somente a `127.0.0.1`. Para envio em produção, configure um provedor SMTP adequado, autenticação e proteção de dados; o plugin e o pagamento de demonstração são apenas para desenvolvimento.
+O campo de CPF confere apenas se há 11 dígitos; ele não valida os dígitos verificadores. O Mailpit captura as mensagens localmente e não envia e-mails reais.
 
-O setup cria `order.created` e também `order.updated`: pedidos inicialmente pendentes são ignorados e podem ser importados quando passam para `processing` ou `completed`. Se não aparecer, consulte o histórico de entregas em **WooCommerce > Configurações > Avançado > Webhooks**, as ações agendadas e `make logs`. Um ping inicial do WooCommerce, sem assinatura, recebe HTTP 200 mas não altera dados; pedidos reais precisam de HMAC válido.
+O WooCommerce envia os eventos `order.created` e `order.updated` para `http://nginx/api/integrations/woocommerce/webhook`. Pedidos pendentes são ignorados e podem ser importados quando passam para `processing` ou `completed`. Se o pedido não aparecer, execute as ações agendadas:
+
+```sh
+docker compose exec -T wpcli wp action-scheduler run --batch-size=100 --batches=5
+```
+
+O plugin em `docker/woocommerce/allow-internal-webhook.php` permite o envio ao host interno `nginx`, sem expor a API publicamente. O ping inicial do WooCommerce não tem assinatura e não grava compras; os eventos de pedido precisam de assinatura válida.
+
+A loja tem um tema demonstrativo inspirado nas cores do Brasil, sem vínculo com a CBF. Após alterar `frontend/src/store.css`, execute `npm run build:store` dentro de `frontend` para atualizar o CSS do tema.
 
 ## API
 
@@ -86,9 +118,9 @@ O setup cria `order.created` e também `order.updated`: pedidos inicialmente pen
 - `GET /api/dashboard`: quantidade, valores e descontos totais/médios; agregações por cliente e produto.
 - `POST /api/integrations/woocommerce/webhook`: assinatura HMAC-SHA256 em Base64 do corpo bruto, no cabeçalho `X-WC-Webhook-Signature`, e tópico em `X-WC-Webhook-Topic`. Eventos de outros estados são ignorados. O endpoint anterior `/api/webhooks/woocommerce` permanece compatível.
 
-Exemplo de sessão e compra direta por administrador, em shell com `jq`:
+Para enviar uma compra diretamente, entre com uma conta de administrador. Exemplo em shell com `jq`:
 
-```sh
+```bash
 read -r -p 'Email: ' LOGIN_EMAIL
 read -r -s -p 'Senha: ' LOGIN_PASSWORD; printf '\n'
 export LOGIN_EMAIL LOGIN_PASSWORD
@@ -116,7 +148,7 @@ curl -b "$COOKIE_JAR" 'http://localhost:8080/api/purchases?reference=PED-1001'
 rm -f -- "$COOKIE_JAR"
 ```
 
-Os valores de entrada são decimais em reais com até duas casas. Campos de saída `_cents` são centavos; as médias podem conter frações de centavo. O resumo de produtos soma quantidade × valor unitário e divide pelo número de compras; por produto, a média é por compra que contém o produto. Cliente é agrupado por CPF e produto pelo nome exato.
+Os valores de entrada são em reais, com até duas casas decimais. Os campos terminados em `_cents` são retornados em centavos. Para o total de produtos, a API soma quantidade × valor unitário; a média geral divide esse total pelo número de compras. A média por produto considera apenas as compras que o contêm. Clientes são agrupados por CPF e produtos pelo nome.
 
 No PostgreSQL, as buscas por referência, nome e email não diferenciam maiúsculas de minúsculas. A busca por CPF aceita números com ou sem pontuação.
 
@@ -134,9 +166,11 @@ make down       # preserva volumes
 
 Para recriar as tabelas da aplicação, `make fresh CONFIRM=fresh` **apaga todos os dados do banco da aplicação**. Não execute em ambiente com dados que deseje preservar. Os volumes da loja não são apagados por esse comando.
 
-A CI executa Pint, Larastan e Pest em PostgreSQL, build e lint do frontend e build do tema da loja, smoke Docker, criação de pedido WooCommerce e checkout automatizado no navegador, conferindo API, dashboard e e-mail no Mailpit. O PostgreSQL da CI é exclusivo do job de testes. Para executar o checkout automatizado localmente, com os serviços e a loja configurados:
+A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. A execução no GitHub ainda precisa ser verificada após publicar o repositório.
 
-```sh
+Para rodar o teste de checkout localmente, com a loja configurada e contas de administrador e leitor criadas:
+
+```bash
 cd frontend
 npm ci
 npx playwright install chromium
@@ -149,15 +183,14 @@ npm run test:checkout
 unset E2E_LOGIN_PASSWORD E2E_READER_PASSWORD
 ```
 
-O teste exige contas previamente criadas, cria um pedido fictício persistente na loja e na aplicação e usa Docker Compose para processar a fila. A execução real da CI depende de publicar o projeto em um repositório GitHub e verificar o resultado em Actions.
+O teste cria um pedido fictício que permanece nos bancos da loja e da aplicação. Ele também usa o Docker Compose para processar a fila de webhooks.
 
-## Decisões e trade-offs
+## Algumas decisões
 
-- **Idempotência:** `purchases.reference` é única no banco e a gravação dos itens ocorre em transação. Reenvios preservam a compra original. Sob concorrência no PostgreSQL, o índice único impede duas compras com a mesma referência.
-- **Centavos:** valores persistidos em inteiros, evitando erros de representação no armazenamento. Valores de compra podem diferir do total dos produtos por frete, taxas ou descontos.
-- **Anti-corruption layer:** `OrderMapper` converte o pedido externo em `ProcessPurchaseCommand`. O CPF é obtido de `billing.cpf` ou metadados `_billing_cpf`, `billing_cpf` ou `cpf`; sem CPF no formato esperado o evento retorna `422` e não inventa identidade. O checkout de blocos da loja de teste inclui esse campo; outras lojas podem precisar de extensão própria. O preço unitário aceita até duas casas decimais.
-- **Profile:** a loja é opcional para quem deseja testar a API com o simulador. Seus volumes persistem entre inicializações.
-- **Escopo de segurança:** perfis, sessão, CSRF e assinatura do webhook reduzem o acesso, mas o ambiente continua exclusivamente de desenvolvimento e ainda precisa das medidas de produção descritas acima.
+- A referência da compra tem índice único. Os itens são gravados em transação, e um reenvio preserva a compra original.
+- Os valores são armazenados em centavos para evitar erros de representação no banco. O valor da compra pode ser diferente da soma dos produtos por causa de descontos, frete ou taxas.
+- `OrderMapper` transforma os dados do WooCommerce antes de enviá-los ao serviço de compras. Ele aceita CPF em `billing.cpf` ou nos metadados `_billing_cpf`, `billing_cpf` e `cpf`. Se o CPF estiver ausente ou fora do formato esperado, o webhook retorna `422`. Outras lojas podem precisar de um campo próprio para coletá-lo.
+- A loja é opcional para testar a API: o comando de simulação também envia um webhook assinado. O projeto usa REST e processamento síncrono, sem broker de mensagens.
 
 ## Troubleshooting
 

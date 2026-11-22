@@ -11,8 +11,7 @@ class WooCommerceWebhookController extends Controller
 {
     public function __invoke(Request $request, PurchaseService $service, OrderMapper $mapper)
     {
-        // WooCommerce sends an unsigned form ping when activating a webhook.
-        // It cannot create or change a purchase.
+        // Na ativação, o WooCommerce envia um teste sem assinatura que não deve gravar compras.
         if ($request->isMethod('POST') && str_starts_with((string) $request->header('Content-Type'), 'application/x-www-form-urlencoded')
             && preg_match('/^webhook_id=[0-9]+$/D', $request->getContent())) {
             return response('OK', 200);

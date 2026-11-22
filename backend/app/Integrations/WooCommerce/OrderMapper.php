@@ -9,8 +9,7 @@ class OrderMapper
 {
     public function map(array $order): ProcessPurchaseCommand
     {
-        // WooCommerce does not standardize CPF: use billing.cpf or order/billing metadata.
-        // Missing CPF is rejected rather than inventing a customer identity.
+        // O WooCommerce não tem um campo padrão de CPF; ele pode vir no faturamento ou nos metadados.
         $cpf = collect($order['billing']['meta_data'] ?? [])->concat($order['meta_data'] ?? [])
             ->first(fn ($item) => in_array($item['key'] ?? '', ['_billing_cpf', 'billing_cpf', 'cpf'], true));
         $cpfValue = $order['billing']['cpf'] ?? $cpf['value'] ?? null;
