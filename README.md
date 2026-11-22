@@ -192,7 +192,7 @@ make down       # preserva volumes
 
 Para recriar as tabelas da aplicação, `make fresh CONFIRM=fresh` **apaga todos os dados do banco da aplicação**. Não execute em ambiente com dados que deseje preservar. Os volumes da loja não são apagados por esse comando.
 
-A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. Confira o resultado da execução mais recente na aba **Actions** do repositório. Na última execução, o job de qualidade passou, mas o teste Docker falhou ao configurar uma opção antiga do WooCommerce; o checkout da CI não chegou a ser executado. A correção foi testada localmente em uma instalação limpa, mas precisa ser enviada ao GitHub e confirmada em uma nova execução.
+A configuração do GitHub Actions inclui os testes, verificações de código, builds e o fluxo de checkout. Confira o resultado da execução mais recente na aba **Actions** do repositório.
 
 Para rodar o teste de checkout localmente, com a loja configurada e contas de administrador e leitor criadas:
 
