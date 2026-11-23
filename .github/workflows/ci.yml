@@ -121,12 +121,15 @@ jobs:
         run: |
           set -o pipefail
           WOOCOMMERCE_QUEUE_CONNECTION=rabbitmq docker compose --profile rabbitmq up -d --build --wait
+          curl --fail --show-error --retry 15 --retry-delay 1 --retry-connrefused --retry-all-errors http://127.0.0.1:8080/up
           make test-order | tee /tmp/arctron-queued-order.log
           order_id="$(sed -n 's/^Pedido WooCommerce criado: \([0-9][0-9]*\)$/\1/p' /tmp/arctron-queued-order.log)"
           test -n "$order_id"
           for attempt in $(seq 1 30); do
             if curl --fail --silent --show-error -b /tmp/arctron-cookie "http://localhost:8080/api/purchases?reference=woocommerce%3A${order_id}" |
-              jq -e --arg reference "woocommerce:${order_id}" '.total == 1 and .data[0].reference == $reference' >/dev/null; then
+              jq -e --arg reference "woocommerce:${order_id}" '.total == 1 and .data[0].reference == $reference' >/dev/null &&
+              docker compose --profile rabbitmq logs --no-color queue-worker |
+              grep -F "woocommerce.purchase.processed {\"reference\":\"woocommerce:${order_id}\"" >/dev/null; then
               exit 0
             fi
             sleep 2
