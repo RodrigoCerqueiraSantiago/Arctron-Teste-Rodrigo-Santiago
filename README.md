@@ -1,6 +1,6 @@
 # Arctron Analytics
 
-Projeto para o desafio fullstack da Arctron. O dashboard lista compras, permite buscar por referência, cliente, data e valor e mostra os totais e médias das transações.
+Este projeto foi desenvolvido para o desafio fullstack da Arctron. Ele reúne compras em um dashboard, com filtros por referência, cliente, data e valor, além de totais e médias das transações.
 
 A API foi feita em Laravel, o frontend em React e o banco é PostgreSQL. Para testar a integração, há uma loja WooCommerce no Docker: quando um pedido é processado, ela envia um webhook para a API e a compra aparece no dashboard.
 
@@ -10,7 +10,7 @@ Loja WooCommerce → webhook → API Laravel → PostgreSQL → dashboard React
 
 ## Dados do dashboard
 
-O dashboard reúne os dados das compras e apresenta indicadores para apoiar decisões. As informações ficam organizadas em:
+Os dados estão organizados em:
 
 - `purchases`: referência, data, valor, desconto e observações da compra.
 - `products`: produtos vendidos.
@@ -37,7 +37,7 @@ docker compose exec api php artisan dashboard:create-user
 make seed-woocommerce
 ```
 
-O primeiro comando copia as configurações de exemplo e só é necessário na primeira instalação. Se já existir um `.env`, não o sobrescreva: ele contém a configuração do ambiente. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Também é possível usar `make up-all` para iniciar os serviços principais e a loja antes da migration.
+Copie o `.env.example` somente na primeira instalação. Se já existir um `.env`, não o sobrescreva: ele contém a configuração do ambiente. O `make up` inicia a API, o banco e o frontend; `make seed-woocommerce` inicia e configura a loja, os produtos e os webhooks. Como alternativa, `make up-all` inicia os serviços principais e a loja antes da migration.
 
 A primeira execução pode demorar por causa dos downloads. Os dados permanecem nos volumes quando os serviços são reiniciados.
 
@@ -56,29 +56,27 @@ Ao criar o usuário, escolha `admin` e informe nome, e-mail e senha. A senha pre
 
 Para entrar no WordPress local, use `admin` e `change-me-dev-only`. Essas credenciais e as configurações de exemplo são apenas para desenvolvimento. Altere o `.env` antes da primeira inicialização e não o envie ao repositório. O usuário do WordPress é salvo no banco: mudar a variável depois não altera a conta já criada.
 
-As portas são de serviços diferentes: `8081` é a loja, `5173` é o login e o dashboard e `8080` é a API Laravel. As rotas `/api/purchases` e `/api/dashboard` não existem na porta da loja.
-
-Para consultar essas rotas no navegador, primeiro entre no dashboard com o usuário criado acima e depois abra os links da API na tabela. Use `localhost` nos dois endereços para compartilhar a sessão. Sem login, a API retorna `401`. As rotas retornam JSON; a interface visual fica no dashboard.
+Para consultar a API no navegador, entre primeiro no dashboard e depois abra os links da tabela. Use `localhost` nos dois endereços para compartilhar a sessão. Sem login, a API retorna `401`. As rotas retornam JSON; a interface visual fica no dashboard.
 
 ## Roteiro para a apresentação
 
 Antes de apresentar:
 
 1. Inicie o Docker e, na pasta do projeto, confira os serviços com `docker compose ps`. Se o ambiente já foi configurado e estiver parado, execute `make up-all`. No Windows, os comandos `make` podem ser executados pelo Git Bash.
-2. Acesse http://localhost:5173 e entre no dashboard. Se ainda não houver uma conta, execute `docker compose exec api php artisan dashboard:create-user`, escolha `admin` e crie sua senha. Essa conta é diferente do usuário do WordPress.
+2. Acesse http://localhost:5173 e entre no dashboard com a conta criada no início rápido. Essa conta é diferente do usuário do WordPress.
 3. Abra também a loja em http://localhost:8081/shop/ e o Mailpit em http://localhost:8025.
 
 Durante a demonstração:
 
-1. Na loja, adicione um produto ao carrinho, confira o total e finalize a compra com dados fictícios e **Pagamento de teste na entrega**.
+1. Na loja, adicione um produto ao carrinho e finalize a compra com dados fictícios, um CPF de 11 dígitos e **Pagamento de teste na entrega**.
 2. Anote o número do pedido. Com o pedido processado, o WooCommerce envia um webhook assinado para a API Laravel, que grava a compra no PostgreSQL.
 3. No dashboard, clique em **Atualizar dados** e busque por `woocommerce:<número do pedido>`. Mostre a compra, os filtros e os indicadores de totais e médias. O dashboard consulta a API Laravel, não a API do WooCommerce.
 4. No mesmo navegador autenticado, abra http://localhost:8080/api/purchases e http://localhost:8080/api/dashboard para mostrar as respostas JSON. Use `localhost` tanto no dashboard quanto na API.
-5. Se desejar, mostre a confirmação no Mailpit. As mensagens ficam no ambiente de teste; não são entregues a endereços reais.
+5. Se desejar, mostre a confirmação no Mailpit. Nenhum pagamento é cobrado e os e-mails ficam no ambiente de teste.
 
 Um reenvio com a mesma referência não cria uma segunda compra. Para demonstrar sem passar pelo checkout, use `make simulate-order ARGS="--reference=987654321"` e busque `woocommerce:987654321`. Se um pedido da loja não aparecer, confira seu status e os logs indicados em [Testar a integração](#testar-a-integração).
 
-Se uma rota da API retornar `401`, faça login no dashboard. Um `404` em `localhost:8081/api/...` indica que a rota foi aberta na porta da loja; use a porta `8080`. O endpoint de login é `POST /api/login`, não uma página para abrir diretamente no navegador.
+Um `404` em `localhost:8081/api/...` indica que a rota foi aberta na porta da loja; use a porta `8080`. O endpoint de login é `POST /api/login`, não uma página para abrir diretamente no navegador.
 
 ## Acesso e proteção de dados
 
@@ -125,14 +123,7 @@ make test-order
 
 O comando cria um pedido fictício com status `processing` e informa o ID. Aguarde a entrega automática e busque `woocommerce:<ID>` no dashboard ou na API.
 
-Também é possível testar pelo navegador:
-
-1. Abra http://localhost:8081/shop/ e adicione um produto ao carrinho.
-2. Finalize o pedido com dados fictícios e um CPF de 11 dígitos.
-3. Escolha **Pagamento de teste na entrega**. Nenhum pagamento será cobrado.
-4. No dashboard, clique em **Atualizar dados**, busque `woocommerce:<número do pedido>` e confira o e-mail no Mailpit.
-
-O campo de CPF confere apenas se há 11 dígitos; ele não valida os dígitos verificadores. O Mailpit captura as mensagens localmente e não envia e-mails reais.
+Para testar pelo navegador, siga o [roteiro para a apresentação](#roteiro-para-a-apresentação). O campo de CPF confere apenas se há 11 dígitos; ele não valida os dígitos verificadores. O Mailpit captura as mensagens localmente e não envia e-mails reais.
 
 O WooCommerce envia os eventos `order.created` e `order.updated` para `http://nginx/api/integrations/woocommerce/webhook`. Pedidos pendentes são ignorados e podem ser importados quando passam para `processing` ou `completed`. O serviço `webhook-worker`, iniciado com o perfil da loja, processa a cada 10 segundos as ações agendadas de entrega de webhooks, inclusive entregas que já estavam pendentes. Ele não executa os demais tipos de ações agendadas do WooCommerce.
 
@@ -241,12 +232,12 @@ unset E2E_LOGIN_PASSWORD E2E_READER_PASSWORD
 
 O teste cria um pedido fictício que permanece nos bancos da loja e da aplicação. A entrega do webhook é feita automaticamente pelo `webhook-worker`.
 
-## Algumas decisões
+## Decisões do projeto
 
-- A referência da compra tem índice único. Os itens são gravados em transação, e um reenvio preserva a compra original.
-- Os valores são armazenados em centavos para evitar erros de representação no banco. O valor da compra pode ser diferente da soma dos produtos por causa de descontos, frete ou taxas.
-- `OrderMapper` transforma os dados do WooCommerce antes de enviá-los ao serviço de compras. Ele aceita CPF em `billing.cpf` ou nos metadados `_billing_cpf`, `billing_cpf` e `cpf`. Se o CPF estiver ausente ou fora do formato esperado, o webhook retorna `422`. Outras lojas podem precisar de um campo próprio para coletá-lo.
-- A loja é opcional para testar a API: o comando de simulação também envia um webhook assinado. O projeto usa REST, com processamento síncrono por padrão e RabbitMQ opcional.
+- A referência tem índice único, os itens são gravados em transação e um reenvio preserva a compra original.
+- Os valores ficam em centavos para evitar erros de representação. O total da compra pode diferir da soma dos produtos por causa de descontos, frete ou taxas.
+- O `OrderMapper` adapta os dados do WooCommerce ao serviço de compras. Aceita CPF em `billing.cpf` ou nos metadados `_billing_cpf`, `billing_cpf` e `cpf`; se estiver ausente ou fora do formato esperado, o webhook retorna `422`. Outras lojas podem precisar de um campo próprio para coletá-lo.
+- A API é REST e processa os webhooks de forma síncrona por padrão. O RabbitMQ é opcional, assim como a loja: o comando de simulação também envia um webhook assinado.
 
 ## Troubleshooting
 
