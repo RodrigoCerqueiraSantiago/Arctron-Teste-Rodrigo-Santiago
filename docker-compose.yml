@@ -173,7 +173,7 @@ services:
       timeout: 5s
       retries: 30
 
-  wpcli:
+  wpcli: &wpcli_service
     image: wordpress:cli
     profiles: ["woocommerce"]
     user: "33:33"
@@ -200,6 +200,12 @@ services:
       nginx:
         condition: service_healthy
     command: ["-c", "sleep infinity"]
+
+  webhook-worker:
+    <<: *wpcli_service
+    environment: *wp_environment
+    command: ["/scripts/run-webhook-worker.sh"]
+    restart: unless-stopped
 
 volumes:
   postgres_data:

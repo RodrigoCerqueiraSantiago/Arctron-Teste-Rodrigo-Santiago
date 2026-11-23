@@ -14,6 +14,4 @@ order_id="$(wp wc shop_order create --user="$WP_ADMIN_USER" --status=processing 
     --meta_data='[{"key":"_billing_cpf","value":"12345678901"}]' \
     --customer_note='Pedido de teste da integração' --porcelain)"
 echo "Pedido WooCommerce criado: $order_id"
-echo "Executando ações agendadas do WooCommerce..."
-wp action-scheduler run --batch-size=100 --batches=5
-echo "Confira a referência woocommerce:$order_id em /api/purchases."
+echo "Aguarde a entrega automática e confira a referência woocommerce:$order_id em /api/purchases."

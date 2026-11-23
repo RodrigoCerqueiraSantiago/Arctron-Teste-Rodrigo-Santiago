@@ -29,6 +29,8 @@ class PurchaseController extends Controller
             'amount_min' => ['nullable', 'numeric', 'min:0', 'max:9999999999', 'decimal:0,2'],
             'amount_max' => ['nullable', 'numeric', 'min:0', 'max:9999999999', 'decimal:0,2', Rule::when($request->filled('amount_min'), ['gte:amount_min'])],
             'page' => ['nullable', 'integer', 'min:1'],
+            'sort_by' => ['nullable', Rule::in(['reference', 'customer', 'date', 'discount', 'amount'])],
+            'sort_direction' => ['nullable', Rule::in(['asc', 'desc'])],
         ]);
         $query = Purchase::with('items.product');
         if (isset($filters['reference']) && $filters['reference'] !== '') {
@@ -50,7 +52,15 @@ class PurchaseController extends Controller
             }
         }
 
-        $query->orderByDesc('purchased_at')->orderByDesc('id');
+        $sortColumns = [
+            'reference' => 'reference',
+            'customer' => 'customer_name',
+            'date' => 'purchased_at',
+            'discount' => 'discount_cents',
+            'amount' => 'amount_cents',
+        ];
+        $query->orderBy($sortColumns[$filters['sort_by'] ?? 'date'], $filters['sort_direction'] ?? 'desc')
+            ->orderByDesc('id');
         $purchases = $customer !== '' && $canViewPersonalData
             ? $this->searchPersonalData($query, $customer, (int) ($filters['page'] ?? 1), $request)
             : $query->paginate(10)->withQueryString();

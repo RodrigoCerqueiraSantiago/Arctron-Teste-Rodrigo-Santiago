@@ -65,6 +65,8 @@ paths:
         - {in: query, name: amount_min, schema: {type: number}}
         - {in: query, name: amount_max, schema: {type: number}}
         - {in: query, name: page, schema: {type: integer, minimum: 1}}
+        - {in: query, name: sort_by, schema: {type: string, enum: [reference, customer, date, discount, amount], default: date}}
+        - {in: query, name: sort_direction, schema: {type: string, enum: [asc, desc], default: desc}}
       responses:
         '200': {description: Lista de compras paginada}
         '401': {description: Autenticação necessária}
@@ -108,8 +110,10 @@ paths:
       responses:
         '201': {description: Compra criada}
         '200': {description: Evento ignorado ou compra já processada}
+        '202': {description: Compra aceita para processamento assíncrono via RabbitMQ}
         '401': {description: Assinatura inválida}
         '422': {description: Pedido inválido ou CPF ausente}
+        '503': {description: Segredo do webhook ou conexão de processamento não configurados}
 components:
   securitySchemes:
     sessionCookie:

@@ -72,11 +72,11 @@ Durante a demonstração:
 
 1. Na loja, adicione um produto ao carrinho, confira o total e finalize a compra com dados fictícios e **Pagamento de teste na entrega**.
 2. Anote o número do pedido. Com o pedido processado, o WooCommerce envia um webhook assinado para a API Laravel, que grava a compra no PostgreSQL.
-3. No dashboard, busque por `woocommerce:<número do pedido>`. Mostre a compra, os filtros e os indicadores de totais e médias. O dashboard consulta a API Laravel, não a API do WooCommerce.
+3. No dashboard, clique em **Atualizar dados** e busque por `woocommerce:<número do pedido>`. Mostre a compra, os filtros e os indicadores de totais e médias. O dashboard consulta a API Laravel, não a API do WooCommerce.
 4. No mesmo navegador autenticado, abra http://localhost:8080/api/purchases e http://localhost:8080/api/dashboard para mostrar as respostas JSON. Use `localhost` tanto no dashboard quanto na API.
 5. Se desejar, mostre a confirmação no Mailpit. As mensagens ficam no ambiente de teste; não são entregues a endereços reais.
 
-Um reenvio com a mesma referência não cria uma segunda compra. Para demonstrar sem passar pelo checkout, use `make simulate-order ARGS="--reference=987654321"` e busque `woocommerce:987654321`. Se um pedido da loja não aparecer, confira seu status e execute as ações agendadas indicadas em [Testar a integração](#testar-a-integração).
+Um reenvio com a mesma referência não cria uma segunda compra. Para demonstrar sem passar pelo checkout, use `make simulate-order ARGS="--reference=987654321"` e busque `woocommerce:987654321`. Se um pedido da loja não aparecer, confira seu status e os logs indicados em [Testar a integração](#testar-a-integração).
 
 Se uma rota da API retornar `401`, faça login no dashboard. Um `404` em `localhost:8081/api/...` indica que a rota foi aberta na porta da loja; use a porta `8080`. O endpoint de login é `POST /api/login`, não uma página para abrir diretamente no navegador.
 
@@ -123,21 +123,23 @@ Para gerar um pedido na loja de teste pelo terminal:
 make test-order
 ```
 
-O comando cria um pedido fictício com status `processing` e informa o ID. Busque `woocommerce:<ID>` no dashboard ou na API.
+O comando cria um pedido fictício com status `processing` e informa o ID. Aguarde a entrega automática e busque `woocommerce:<ID>` no dashboard ou na API.
 
 Também é possível testar pelo navegador:
 
 1. Abra http://localhost:8081/shop/ e adicione um produto ao carrinho.
 2. Finalize o pedido com dados fictícios e um CPF de 11 dígitos.
 3. Escolha **Pagamento de teste na entrega**. Nenhum pagamento será cobrado.
-4. Busque `woocommerce:<número do pedido>` no dashboard e confira o e-mail no Mailpit.
+4. No dashboard, clique em **Atualizar dados**, busque `woocommerce:<número do pedido>` e confira o e-mail no Mailpit.
 
 O campo de CPF confere apenas se há 11 dígitos; ele não valida os dígitos verificadores. O Mailpit captura as mensagens localmente e não envia e-mails reais.
 
-O WooCommerce envia os eventos `order.created` e `order.updated` para `http://nginx/api/integrations/woocommerce/webhook`. Pedidos pendentes são ignorados e podem ser importados quando passam para `processing` ou `completed`. Se o pedido não aparecer, execute as ações agendadas:
+O WooCommerce envia os eventos `order.created` e `order.updated` para `http://nginx/api/integrations/woocommerce/webhook`. Pedidos pendentes são ignorados e podem ser importados quando passam para `processing` ou `completed`. O serviço `webhook-worker`, iniciado com o perfil da loja, processa a cada 10 segundos as ações agendadas de entrega de webhooks, inclusive entregas que já estavam pendentes. Ele não executa os demais tipos de ações agendadas do WooCommerce.
+
+Se o pedido não aparecer, aguarde alguns segundos, clique em **Atualizar dados** e consulte os logs:
 
 ```sh
-docker compose exec -T wpcli wp action-scheduler run --batch-size=100 --batches=5
+docker compose --profile woocommerce logs --tail=100 webhook-worker
 ```
 
 O plugin em `docker/woocommerce/allow-internal-webhook.php` permite o envio ao host interno `nginx`, sem expor a API publicamente. O ping inicial do WooCommerce não tem assinatura e não grava compras; os eventos de pedido precisam de assinatura válida.
@@ -168,7 +170,7 @@ Os eventos de enfileiramento, processamento, assinatura inválida e falha final 
 
 - `GET /api/csrf`, `POST /api/login`, `GET /api/me` e `POST /api/logout`: sessão do dashboard; login e logout exigem `X-CSRF-TOKEN`.
 - `POST /api/purchases`: exclusivo de administrador e exige `X-CSRF-TOKEN`. A primeira criação retorna `201`; reenvios retornam `200` e `created: false`.
-- `GET /api/purchases`: lista paginada, com filtros opcionais `reference`, `customer` (nome, email ou CPF), `date_from`, `date_to` (`YYYY-MM-DD`, UTC), `amount_min`, `amount_max` (reais) e `page`.
+- `GET /api/purchases`: lista paginada, com filtros opcionais `reference`, `customer` (nome, email ou CPF), `date_from`, `date_to` (`YYYY-MM-DD`, UTC), `amount_min`, `amount_max` (reais) e `page`. A ordenação usa `sort_by` (`reference`, `customer`, `date`, `discount` ou `amount`) e `sort_direction` (`asc` ou `desc`); por padrão, a data mais recente vem primeiro. No dashboard, clique nos cabeçalhos para alternar a direção.
 - `GET /api/dashboard`: quantidade, valores e descontos totais/médios; agregações por cliente e produto.
 - `POST /api/integrations/woocommerce/webhook`: assinatura HMAC-SHA256 em Base64 do corpo bruto, no cabeçalho `X-WC-Webhook-Signature`, e tópico em `X-WC-Webhook-Topic`. Eventos de outros estados são ignorados. No modo síncrono retorna `201` na criação e `200` para duplicatas; no modo RabbitMQ retorna `202` após enfileirar. O endpoint anterior `/api/webhooks/woocommerce` permanece compatível.
 
@@ -202,7 +204,7 @@ curl -b "$COOKIE_JAR" 'http://localhost:8080/api/purchases?reference=PED-1001'
 rm -f -- "$COOKIE_JAR"
 ```
 
-Os valores de entrada são em reais, com até duas casas decimais. Os campos terminados em `_cents` são retornados em centavos. Para o total de produtos, a API soma quantidade × valor unitário; a média geral divide esse total pelo número de compras. A média por produto considera apenas as compras que o contêm. Clientes são agrupados por CPF e produtos pelo nome.
+Os valores de entrada são em reais, com até duas casas decimais. Os campos terminados em `_cents` são retornados em centavos. Para o total de produtos, a API soma quantidade × valor unitário; a média geral divide esse total pelo número de compras. A média por produto considera apenas as compras que o contêm. Clientes são agrupados por CPF e produtos pelo nome. Os indicadores cobrem todo o período; os filtros do dashboard afetam somente a listagem. O botão **Atualizar dados** consulta novamente os indicadores e a listagem, preservando os filtros aplicados.
 
 No PostgreSQL, as buscas por referência, nome e email não diferenciam maiúsculas de minúsculas. A busca por CPF aceita números com ou sem pontuação.
 
@@ -237,7 +239,7 @@ npm run test:checkout
 unset E2E_LOGIN_PASSWORD E2E_READER_PASSWORD
 ```
 
-O teste cria um pedido fictício que permanece nos bancos da loja e da aplicação. Ele também usa o Docker Compose para processar a fila de webhooks.
+O teste cria um pedido fictício que permanece nos bancos da loja e da aplicação. A entrega do webhook é feita automaticamente pelo `webhook-worker`.
 
 ## Algumas decisões
 
@@ -252,6 +254,6 @@ O teste cria um pedido fictício que permanece nos bancos da loja e da aplicaç�
 - **Serviços ainda inicializando:** consulte `docker compose ps` e `make logs`; a API espera o healthcheck do PostgreSQL e o setup espera o banco da loja.
 - **Webhook com 401:** confirme o mesmo `WOOCOMMERCE_WEBHOOK_SECRET` no `.env`, recrie os contêineres com `make up-all` e execute `make seed-woocommerce` para atualizar os webhooks.
 - **Webhook com 422:** verifique CPF, email, itens e demais campos obrigatórios do pedido. O corpo e assinatura precisam corresponder exatamente.
-- **Loja sem evento:** confirme que o pedido está `processing` ou `completed`, verifique o histórico de entregas e execute `make test-order`. A loja e o WooCommerce devem estar inicializados por `make seed-woocommerce`.
+- **Loja sem evento:** confirme que o pedido está `processing` ou `completed`, verifique o histórico de entregas e os logs do `webhook-worker` e execute `make test-order`. A loja e o WooCommerce devem estar inicializados por `make seed-woocommerce`.
 - **Mudança de credenciais do banco:** credenciais usadas na criação dos volumes não são alteradas automaticamente por uma edição posterior do `.env`.
 - **Configuração inicial lenta:** na primeira execução são necessários downloads de imagens, dependências e plugin; o prazo depende da rede e do cache.

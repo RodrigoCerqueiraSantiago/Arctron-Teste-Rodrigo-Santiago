@@ -158,4 +158,51 @@ class PurchasesTest extends TestCase
             ->assertJsonPath('total', 12)->assertJsonPath('current_page', 2)
             ->assertJsonCount(2, 'data');
     }
+
+    public function test_sorting_covers_all_pages_and_personal_data_search(): void
+    {
+        for ($i = 12; $i >= 1; $i--) {
+            $this->postJson('/api/purchases', $this->purchase([
+                'reference' => sprintf('PED-%02d', $i),
+                'amount' => (string) (100 + $i),
+                'discount' => (string) $i,
+                'purchased_at' => sprintf('2026-01-%02dT12:00:00Z', $i),
+                'customer' => ['name' => sprintf('Cliente %02d', $i)],
+            ]))->assertCreated();
+        }
+
+        foreach (['reference', 'customer', 'date', 'discount', 'amount'] as $column) {
+            foreach (['asc', 'desc'] as $direction) {
+                $expected = array_map(fn ($i) => sprintf('PED-%02d', $i), range(1, 12));
+                if ($direction === 'desc') {
+                    $expected = array_reverse($expected);
+                }
+                foreach (['', '&customer=example'] as $filter) {
+                    $url = "/api/purchases?sort_by=$column&sort_direction=$direction$filter";
+                    $first = $this->getJson($url.'&page=1')->assertOk()->assertJsonPath('total', 12)->json('data');
+                    $second = $this->getJson($url.'&page=2')->assertOk()->json('data');
+                    $this->assertSame($expected, array_column(array_merge($first, $second), 'reference'));
+                }
+            }
+        }
+
+        $this->getJson('/api/purchases')->assertOk()->assertJsonPath('data.0.reference', 'PED-12');
+        $this->getJson('/api/purchases?sort_by=customer_email')->assertUnprocessable();
+        $this->getJson('/api/purchases?sort_direction=invalid')->assertUnprocessable();
+    }
+
+    public function test_sorting_equal_values_has_a_stable_id_tiebreaker(): void
+    {
+        for ($i = 1; $i <= 12; $i++) {
+            $this->postJson('/api/purchases', $this->purchase(['reference' => sprintf('PED-%02d', $i)]))->assertCreated();
+        }
+
+        foreach (['', '&customer=example'] as $filter) {
+            $url = '/api/purchases?sort_by=amount&sort_direction=asc'.$filter;
+            $first = $this->getJson($url.'&page=1')->assertOk()->json('data');
+            $second = $this->getJson($url.'&page=2')->assertOk()->json('data');
+            $expected = array_map(fn ($i) => sprintf('PED-%02d', $i), range(12, 1));
+            $this->assertSame($expected, array_column(array_merge($first, $second), 'reference'));
+        }
+    }
 }

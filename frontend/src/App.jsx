@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const money = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cents || 0) / 100)
 const date = (value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
 const initialFilters = { reference: '', customer: '', date_from: '', date_to: '', amount_min: '', amount_max: '' }
+const purchaseColumns = [['reference', 'Referência'], ['customer', 'Cliente'], ['date', 'Data (UTC)'], ['discount', 'Desconto'], ['amount', 'Valor']]
 const panel = 'rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,35,70,0.04)]'
 const secondaryButton = 'rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-blue-300 hover:text-navy disabled:opacity-40'
 
@@ -154,11 +155,13 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
   const [filters, setFilters] = useState(initialFilters)
   const [query, setQuery] = useState(initialFilters)
   const [page, setPage] = useState(1)
+  const [sort, setSort] = useState({ sort_by: 'date', sort_direction: 'desc' })
   const [purchases, setPurchases] = useState(null)
   const [dashboardError, setDashboardError] = useState('')
   const [listError, setListError] = useState('')
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(null)
+  const [refreshKey, setRefreshKey] = useState(0)
 
   useEffect(() => {
     const controller = new AbortController()
@@ -167,17 +170,17 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
       else if (error.name !== 'AbortError') setDashboardError(error.message)
     })
     return () => controller.abort()
-  }, [onSessionExpired])
+  }, [onSessionExpired, refreshKey])
 
   useEffect(() => {
     const controller = new AbortController()
-    const params = new URLSearchParams(Object.entries({ ...query, page }).filter(([, value]) => value !== ''))
+    const params = new URLSearchParams(Object.entries({ ...query, ...sort, page }).filter(([, value]) => value !== ''))
     getJson(`/api/purchases?${params}`, controller.signal).then(setPurchases).catch((error) => {
       if (error.status === 401) onSessionExpired()
       else if (error.name !== 'AbortError') setListError(error.message)
     }).finally(() => { if (!controller.signal.aborted) setLoading(false) })
     return () => controller.abort()
-  }, [query, page, onSessionExpired])
+  }, [query, sort, page, onSessionExpired, refreshKey])
 
   const summary = dashboard?.summary
   const cards = [
@@ -185,7 +188,7 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
     { label: 'Compras', value: Number(summary?.purchase_count || 0).toLocaleString('pt-BR'), detail: 'Transações registradas', icon: 'bag' },
     { label: 'Ticket médio', value: money(summary?.purchase_average_cents), detail: 'Valor médio por compra', icon: 'arrow' },
     { label: 'Descontos', value: money(summary?.discount_total_cents), detail: `Média de ${money(summary?.discount_average_cents)}`, icon: 'chart' },
-    { label: 'Produtos', value: money(summary?.product_total_cents), detail: `Média de ${money(summary?.product_average_cents)} por compra`, icon: 'box' },
+    { label: 'Total dos produtos', value: money(summary?.product_total_cents), detail: `Média de ${money(summary?.product_average_cents)} por compra`, icon: 'box' },
   ]
   function submit(event) {
     event.preventDefault()
@@ -206,6 +209,23 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
     setListError('')
     setPage(nextPage)
   }
+  function changeSort(column) {
+    setLoading(true)
+    setListError('')
+    setPage(1)
+    setExpanded(null)
+    setSort((current) => ({
+      sort_by: column,
+      sort_direction: current.sort_by === column && current.sort_direction === 'asc' ? 'desc' : 'asc',
+    }))
+  }
+  function refreshData() {
+    setLoading(true)
+    setDashboardError('')
+    setListError('')
+    setExpanded(null)
+    setRefreshKey((current) => current + 1)
+  }
   return <div className="min-h-screen md:flex">
     <aside className="bg-navy text-blue-100 md:fixed md:inset-y-0 md:left-0 md:flex md:w-58 md:flex-col">
       <div className="flex items-center justify-between px-6 py-6 md:block">
@@ -224,23 +244,29 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
         <div className="flex items-center gap-3"><span className="text-xs text-slate-600">{user.name} · {user.role === 'admin' ? 'Administrador' : 'Leitor'}</span><button className={secondaryButton} type="button" onClick={onLogout} disabled={busy}>Sair</button></div>
       </header>
       <div className="mx-auto max-w-400 px-5 py-8 sm:px-8 lg:px-11 lg:py-10">
-        <div className="mb-8 flex flex-wrap items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.18em] text-pitch"><span className="h-1.5 w-5 rounded-full bg-gold" /> INTELIGÊNCIA DE COMPRAS</div><h1 className="mt-3 text-3xl font-extrabold tracking-tight text-navy sm:text-4xl">Visão geral<span className="text-pitch">.</span></h1><p className="mt-2 text-sm text-slate-500">Acompanhe suas transações e tome decisões com mais clareza.</p></div><div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-500"><Icon name="calendar" className="h-4 w-4" /> Todo o período</div></div>
+        <div className="mb-8 flex flex-wrap items-end justify-between gap-4"><div><div className="flex items-center gap-2 text-[10px] font-bold tracking-[0.18em] text-pitch"><span className="h-1.5 w-5 rounded-full bg-gold" /> INTELIGÊNCIA DE COMPRAS</div><h1 className="mt-3 text-3xl font-extrabold tracking-tight text-navy sm:text-4xl">Visão geral<span className="text-pitch">.</span></h1><p className="mt-2 text-sm text-slate-500">Acompanhe suas transações e tome decisões com mais clareza.</p></div><div className="flex flex-wrap items-center gap-2"><div className="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-xs font-semibold text-slate-500"><Icon name="calendar" className="h-4 w-4" /> Todo o período</div><button type="button" className={secondaryButton} onClick={refreshData} disabled={loading}>Atualizar dados</button></div></div>
         {authError && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{authError}</div>}
         {dashboardError && <div className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">Não foi possível carregar o resumo: {dashboardError}</div>}
         {!dashboard && !dashboardError && <p className="py-5 text-sm text-slate-500">Carregando indicadores...</p>}
         {dashboard && <>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">{cards.map((card) => <div className={card.featured ? 'rounded-2xl bg-navy p-5 text-white shadow-[0_8px_30px_rgba(15,35,70,0.14)]' : `${panel} p-5`} key={card.label}><div className={`flex items-center justify-between gap-2 text-xs font-semibold ${card.featured ? 'text-blue-200' : 'text-slate-500'}`}><span>{card.label}</span><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-xl ${card.featured ? 'bg-white/10 text-gold' : 'bg-blue-50 text-navy-light'}`}><Icon name={card.icon} className="h-4 w-4" /></span></div><strong className={`mt-5 block text-2xl font-extrabold tracking-tight ${card.featured ? 'text-white' : 'text-navy'}`}>{card.value}</strong><small className={`mt-2 block text-[11px] ${card.featured ? 'text-blue-200' : 'text-slate-400'}`}>{card.detail}</small></div>)}</div>
-          <div className="my-5 grid items-start gap-4 lg:grid-cols-2"><Ranking title="Principais clientes" description="Clientes com maior volume de compras" items={dashboard.customers} icon="users" /><Ranking title="Produtos em destaque" description="Produtos com maior valor vendido" items={dashboard.products} icon="box" /></div>
+          <div className="my-5 grid items-start gap-4 lg:grid-cols-2"><Ranking title="Principais clientes" description="Clientes com maior valor total de compras" items={dashboard.customers} icon="users" /><Ranking title="Produtos em destaque" description="Produtos com maior valor vendido" items={dashboard.products} icon="box" /></div>
         </>}
         <section className={`${panel} mt-5 p-5 sm:p-6`} id="purchases">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-pitch">TRANSAÇÕES</div><h2 className="text-lg font-bold text-navy">Histórico de compras</h2><p className="mt-1 text-xs text-slate-500">Encontre e acompanhe todas as suas transações. Datas em UTC.</p></div><span className="rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-navy-light">{purchases?.total ?? 0} compras</span></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-pitch">TRANSAÇÕES</div><h2 className="text-lg font-bold text-navy">Histórico de compras</h2><p className="mt-1 text-xs text-slate-500">Datas em UTC. Os filtros alteram apenas a listagem; os indicadores acima abrangem todo o período.</p></div><span className="rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-navy-light">{purchases?.total ?? 0} compras</span></div>
           <form onSubmit={submit} className="my-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
             {[['reference', 'Referência', 'Ex.: PED-001'], ['customer', 'Cliente', user.role === 'admin' ? 'Nome, e-mail ou CPF' : 'Nome'], ['date_from', 'Data inicial (UTC)', '', 'date'], ['date_to', 'Data final (UTC)', '', 'date'], ['amount_min', 'Valor mínimo', '0,00', 'number'], ['amount_max', 'Valor máximo', '0,00', 'number']].map(([key, label, placeholder, type]) =>
               <label className="text-xs font-semibold text-slate-600" key={key}>{label}<input className="mt-2 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-xs font-normal text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100" type={type || 'text'} placeholder={placeholder} min={type === 'number' ? '0' : undefined} step={type === 'number' ? '0.01' : undefined} value={filters[key]} onChange={(event) => setFilters({ ...filters, [key]: event.target.value })} /></label>)}
             <div className="flex gap-2 sm:col-span-2 lg:col-span-3 2xl:col-span-6"><button className="flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-xs font-bold text-white transition hover:bg-navy-light" type="submit"><Icon name="search" className="h-4 w-4" /> Buscar compras</button><button type="button" className={secondaryButton} onClick={reset}>Limpar</button></div>
           </form>
           {listError && <div className="my-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700" role="alert">{listError}</div>}
-          {loading ? <p className="py-12 text-center text-sm text-slate-400">Carregando compras...</p> : !listError && purchases?.data.length === 0 ? <p className="py-12 text-center text-sm text-slate-400">Nenhuma compra encontrada. Experimente outros filtros ou envie uma compra pela API.</p> : !listError && <div className="relative overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead className="bg-slate-50 text-[10px] tracking-wide text-slate-400 uppercase"><tr><th className="rounded-l-lg p-3">Referência</th><th className="p-3">Cliente</th><th className="p-3">Data (UTC)</th><th className="p-3">Desconto</th><th className="p-3">Valor</th><th className="rounded-r-lg p-3"><span className="sr-only">Detalhes</span></th></tr></thead><tbody>
+          {loading ? <p className="py-12 text-center text-sm text-slate-400">Carregando compras...</p> : !listError && purchases?.data.length === 0 ? <p className="py-12 text-center text-sm text-slate-400">Nenhuma compra encontrada. Experimente outros filtros ou envie uma compra pela API.</p> : !listError && <div className="relative overflow-x-auto"><table className="w-full whitespace-nowrap text-left text-xs"><thead className="bg-slate-50 text-[10px] tracking-wide text-slate-400 uppercase"><tr>
+            {purchaseColumns.map(([key, label], index) => <th key={key} scope="col" className={`${index === 0 ? 'rounded-l-lg ' : ''}p-3`} aria-sort={sort.sort_by === key ? (sort.sort_direction === 'asc' ? 'ascending' : 'descending') : undefined}>
+              <button type="button" className="inline-flex items-center gap-1 font-bold transition hover:text-navy focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-navy" onClick={() => changeSort(key)}>
+                {label}<i className={`${sort.sort_by === key ? (sort.sort_direction === 'asc' ? 'ri-sort-asc' : 'ri-sort-desc') + ' text-navy' : 'ri-arrow-up-down-line'} text-sm`} aria-hidden="true" />
+              </button>
+            </th>)}
+            <th className="rounded-r-lg p-3"><span className="sr-only">Detalhes</span></th></tr></thead><tbody>
             {purchases?.data.map((purchase) => <PurchaseRows key={purchase.id} purchase={purchase} expanded={expanded === purchase.id} onToggle={() => setExpanded(expanded === purchase.id ? null : purchase.id)} />)}
           </tbody></table></div>}
           {purchases && purchases.last_page > 1 && <div className="mt-5 flex items-center justify-between text-xs text-slate-500"><span>Página {purchases.current_page} de {purchases.last_page}</span><div className="flex gap-2"><button type="button" className={secondaryButton} disabled={page <= 1 || loading} onClick={() => changePage(page - 1)}>Anterior</button><button type="button" className={secondaryButton} disabled={page >= purchases.last_page || loading} onClick={() => changePage(page + 1)}>Próxima</button></div></div>}
