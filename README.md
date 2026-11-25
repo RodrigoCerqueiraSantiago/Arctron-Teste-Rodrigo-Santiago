@@ -47,16 +47,18 @@ O `.env.example` contém valores exclusivamente locais. Configure segredos próp
 
 | Serviço | Endereço |
 |---|---|
-| Login e dashboard | http://localhost:5173 |
-| API de compras | http://localhost:8080/api/purchases |
-| Indicadores | http://localhost:8080/api/dashboard |
-| Healthcheck | http://localhost:8080/up |
-| Contrato OpenAPI | http://localhost:8080/openapi.yaml |
+| Login e dashboard | http://127.0.0.1:5173 |
+| API de compras | http://127.0.0.1:8080/api/purchases |
+| Indicadores | http://127.0.0.1:8080/api/dashboard |
+| Healthcheck | http://127.0.0.1:8080/up |
+| Contrato OpenAPI | http://127.0.0.1:8080/openapi.yaml |
 | Loja WooCommerce | http://localhost:8081 |
 | Administração WordPress | http://localhost:8081/wp-admin |
-| E-mails locais (Mailpit) | http://localhost:8025 |
+| E-mails locais (Mailpit) | http://127.0.0.1:8025 |
 
 O usuário do dashboard é independente do usuário do WordPress. Para a instalação local, as credenciais do WordPress são configuradas pelo `.env`; os valores de exemplo não devem ser usados em produção.
+
+Esses endereços funcionam na máquina em que os serviços foram iniciados. Para acessar diretamente as compras e os indicadores da API pelo navegador, entre primeiro no dashboard usando `127.0.0.1`; sem autenticação, a API retorna `401`. O uso do mesmo endereço garante que a sessão seja compartilhada entre o dashboard e a API.
 
 ## Avaliar a integração
 
