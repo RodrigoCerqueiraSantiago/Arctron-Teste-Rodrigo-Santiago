@@ -65,7 +65,11 @@ test('checkout imports the order and sends a local email', async ({ page, reques
   })
 
   await page.getByRole('button', { name: 'Atualizar dados' }).click()
-  await expect(page.getByText(`woocommerce:${orderId}`, { exact: true })).toBeVisible()
+  const purchaseLabel = `Pedido WooCommerce nº ${orderId}`
+  await expect(page.getByText(purchaseLabel, { exact: true })).toBeVisible()
+  await page.getByLabel('Referência', { exact: true }).fill(purchaseLabel)
+  await page.getByRole('button', { name: 'Buscar compras' }).click()
+  await expect(page.getByText(purchaseLabel, { exact: true })).toBeVisible()
 
   await expect.poll(async () => {
     const response = await request.get(`${mailpitUrl}/api/v1/messages`)
@@ -101,12 +105,13 @@ test('reader sees purchases without personal data', async ({ page, request }) =>
   await page.getByRole('button', { name: /detalhes de/ }).first().click()
   await expect(page.getByText('CPF:', { exact: false })).toHaveCount(0)
   await page.getByRole('button', { name: 'Sair' }).click()
-  await expect(page.getByRole('heading', { name: 'Acessar dashboard' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Acessar painel' })).toBeVisible()
 })
 
 test('purchase headers sort the complete filtered list and reset pagination', async ({ page }) => {
   let dashboardRequests = 0
   let purchaseRequests = 0
+  let requestedReference = null
   const purchases = Array.from({ length: 12 }, (_, index) => ({
     id: index + 1,
     reference: `PED-${String(index + 1).padStart(2, '0')}`,
@@ -116,6 +121,15 @@ test('purchase headers sort the complete filtered list and reset pagination', as
     amount_cents: (index + 1) * 100,
     items: [],
   }))
+  const wooPurchase = {
+    id: 13,
+    reference: 'woocommerce:35',
+    customer_name: 'Cliente WooCommerce',
+    purchased_at: '2026-01-13T12:00:00Z',
+    discount_cents: 0,
+    amount_cents: 9995,
+    items: [],
+  }
   const columns = { reference: 'reference', customer: 'customer_name', date: 'purchased_at', discount: 'discount_cents', amount: 'amount_cents' }
   await page.route('**/api/**', async (route) => {
     const url = new URL(route.request().url())
@@ -131,8 +145,12 @@ test('purchase headers sort the complete filtered list and reset pagination', as
       const sortBy = url.searchParams.get('sort_by')
       const direction = url.searchParams.get('sort_direction')
       const pageNumber = Number(url.searchParams.get('page'))
+      const reference = url.searchParams.get('reference') || ''
+      requestedReference = reference
       const customer = url.searchParams.get('customer') || ''
-      const filtered = purchases.filter((purchase) => purchase.customer_name.includes(customer))
+      const filtered = reference
+        ? (reference === wooPurchase.reference ? [wooPurchase] : [])
+        : purchases.filter((purchase) => purchase.customer_name.includes(customer))
       const sorted = filtered.sort((a, b) => {
         const first = a[columns[sortBy]]
         const second = b[columns[sortBy]]
@@ -176,4 +194,11 @@ test('purchase headers sort the complete filtered list and reset pagination', as
   await expect.poll(() => purchaseRequests).toBeGreaterThan(beforePurchases)
   await expect(rows).toHaveCount(1)
   await expect(rows.first()).toContainText('PED-01')
+
+  await page.getByRole('button', { name: 'Limpar' }).click()
+  await page.getByLabel('Referência', { exact: true }).fill('Pedido WooCommerce nº 35')
+  await page.getByRole('button', { name: 'Buscar compras' }).click()
+  await expect.poll(() => requestedReference).toBe('woocommerce:35')
+  await expect(rows).toHaveCount(1)
+  await expect(rows.first()).toContainText('Pedido WooCommerce nº 35')
 })

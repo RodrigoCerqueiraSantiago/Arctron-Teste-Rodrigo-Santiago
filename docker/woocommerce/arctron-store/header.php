@@ -17,7 +17,7 @@
     <div class="store-nav">
         <a class="brand" href="<?php echo esc_url(wc_get_page_permalink('shop')); ?>" aria-label="Arctron Sport - início">
             <span class="brand-mark">A<span>.</span></span>
-            <span class="brand-name">ARCTRON <strong>SPORT</strong><small>LOJA DEMO</small></span>
+            <span class="brand-name">ARCTRON <strong>SPORT</strong><small>LOJA DEMONSTRATIVA</small></span>
         </a>
         <nav class="nav-links" aria-label="Navegação principal">
             <a href="<?php echo esc_url(wc_get_page_permalink('shop')); ?>">Coleção</a>

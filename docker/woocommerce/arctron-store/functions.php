@@ -15,10 +15,34 @@ add_action('wp_enqueue_scripts', function () {
         $script = get_template_directory() . '/assets/cart.js';
         wp_enqueue_script('arctron-cart', get_template_directory_uri() . '/assets/cart.js', ['wp-data', 'wc-blocks-data-store'], filemtime($script), true);
     }
-    if (function_exists('is_checkout') && is_checkout()) {
-        wp_add_inline_script('wp-i18n', 'wp.hooks.addFilter("i18n.gettext", "arctron/checkout-translation", (translation, text, domain) => domain === "woocommerce" && text === "+ Add %s" ? "+ Adicionar %s" : translation);', 'after');
-    }
+    wp_enqueue_script('wp-i18n');
+    wp_add_inline_script('wp-i18n', 'wp.hooks.addFilter("i18n.gettext", "arctron/store-translation", (translation, text, domain) => {
+        const translations = {
+            "Your cart is currently empty!": "Seu carrinho está vazio!",
+            "New in store": "Novidades na loja",
+            "+ Add %s": "+ Adicionar %s"
+        };
+        return domain && domain.startsWith("woocommerce") ? (translations[text] || translation) : translation;
+    });', 'after');
 });
+
+add_filter('gettext', function ($translation, $text) {
+    $translations = [
+        'Your cart is currently empty!' => 'Seu carrinho está vazio!',
+        'New in store' => 'Novidades na loja',
+        '+ Add %s' => '+ Adicionar %s',
+    ];
+
+    return $translations[$text] ?? $translation;
+}, 20, 2);
+
+add_filter('render_block', function ($content) {
+    return str_replace(
+        ['Your cart is currently empty!', 'New in store'],
+        ['Seu carrinho está vazio!', 'Novidades na loja'],
+        $content
+    );
+}, 20);
 
 add_filter('woocommerce_show_page_title', function ($show) {
     return is_shop() ? false : $show;

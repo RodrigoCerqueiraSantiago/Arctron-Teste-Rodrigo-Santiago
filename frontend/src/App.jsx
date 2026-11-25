@@ -3,6 +3,14 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 const money = (cents) => new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(Number(cents || 0) / 100)
 const date = (value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium', timeZone: 'UTC' }).format(new Date(value))
 const initialFilters = { reference: '', customer: '', date_from: '', date_to: '', amount_min: '', amount_max: '' }
+const referenceLabel = (reference) => {
+  const wooOrder = /^woocommerce:(.+)$/i.exec(reference)
+  return wooOrder ? `Pedido WooCommerce nº ${wooOrder[1]}` : reference
+}
+const normalizeReferenceFilter = (reference) => {
+  const wooOrder = /^Pedido WooCommerce nº\s*(.+)$/i.exec(reference.trim())
+  return wooOrder ? `woocommerce:${wooOrder[1]}` : reference
+}
 const purchaseColumns = [['reference', 'Referência'], ['customer', 'Cliente'], ['date', 'Data (UTC)'], ['discount', 'Desconto'], ['amount', 'Valor']]
 const panel = 'rounded-2xl border border-slate-200/80 bg-white shadow-[0_8px_30px_rgba(15,35,70,0.04)]'
 const secondaryButton = 'rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-xs font-semibold text-slate-600 transition hover:border-blue-300 hover:text-navy disabled:opacity-40'
@@ -45,7 +53,7 @@ function Ranking({ title, description, items, icon }) {
       <div className="mt-7 space-y-5">{visible.map((item, index) => <div key={item.id}>
         <div className="flex items-center justify-between gap-3 text-sm"><span className="min-w-0 truncate font-semibold text-slate-700"><b className="mr-3 text-xs text-slate-400">{String(index + 1).padStart(2, '0')}</b>{item.name}</span><strong className="whitespace-nowrap text-navy">{money(item.total_cents)}</strong></div>
         <div className="mt-2 h-1.5 rounded-full bg-slate-100"><div className="h-full rounded-full bg-pitch" style={{ width: `${maximum ? Number(item.total_cents) / maximum * 100 : 0}%` }} /></div>
-        <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>{item.purchase_count} compra(s)</span><span>Média {money(item.average_cents)}</span></div>
+        <div className="mt-2 flex justify-between text-[11px] text-slate-400"><span>{item.purchase_count} {item.purchase_count === 1 ? 'compra' : 'compras'}</span><span>Média {money(item.average_cents)}</span></div>
       </div>)}</div>}
     {items.length > 5 && <button className="mt-5 text-xs font-bold text-navy-light hover:underline" type="button" onClick={() => setShowAll(!showAll)} aria-expanded={showAll}>{showAll ? 'Mostrar menos' : `Ver todos os ${items.length}`}</button>}
   </section>
@@ -140,7 +148,7 @@ function App() {
 
   return <main className="grid min-h-screen place-items-center bg-slate-100 p-5">
     <form onSubmit={login} className={`${panel} w-full max-w-sm p-8`}>
-      <div className="mb-6"><span className="text-xs font-bold tracking-widest text-pitch">ARCTRON ANALYTICS</span><h1 className="mt-2 text-2xl font-extrabold text-navy">Acessar dashboard</h1><p className="mt-2 text-sm text-slate-500">Entre com seu usuário e senha.</p></div>
+      <div className="mb-6"><span className="text-xs font-bold tracking-widest text-pitch">ARCTRON ANÁLISES</span><h1 className="mt-2 text-2xl font-extrabold text-navy">Acessar painel</h1><p className="mt-2 text-sm text-slate-500">Entre com seu usuário e senha.</p></div>
       {error && <p className="mb-4 rounded-lg bg-red-50 p-3 text-sm text-red-700" role="alert">{error}</p>}
       <label className="block text-sm font-semibold text-slate-700">E-mail<input className="mt-2 block w-full rounded-lg border border-slate-300 px-3 py-2" name="email" type="email" autoComplete="username" required /></label>
       <label className="mt-4 block text-sm font-semibold text-slate-700">Senha<input className="mt-2 block w-full rounded-lg border border-slate-300 px-3 py-2" name="password" type="password" autoComplete="current-password" required /></label>
@@ -183,6 +191,7 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
   }, [query, sort, page, onSessionExpired, refreshKey])
 
   const summary = dashboard?.summary
+  const purchaseCount = purchases?.total ?? 0
   const cards = [
     { label: 'Valor total de compras', value: money(summary?.purchase_total_cents), detail: 'Total acumulado no período', icon: 'chart', featured: true },
     { label: 'Compras', value: Number(summary?.purchase_count || 0).toLocaleString('pt-BR'), detail: 'Transações registradas', icon: 'bag' },
@@ -195,7 +204,7 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
     setLoading(true)
     setListError('')
     setPage(1)
-    setQuery({ ...filters })
+    setQuery({ ...filters, reference: normalizeReferenceFilter(filters.reference) })
   }
   function reset() {
     setLoading(true)
@@ -229,18 +238,18 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
   return <div className="min-h-screen md:flex">
     <aside className="bg-navy text-blue-100 md:fixed md:inset-y-0 md:left-0 md:flex md:w-58 md:flex-col">
       <div className="flex items-center justify-between px-6 py-6 md:block">
-        <a href="#overview" className="flex items-center gap-3 text-white"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gold text-xl font-black text-navy">A</span><span className="text-lg font-extrabold tracking-tight">Arctron<span className="block text-[10px] font-semibold tracking-[0.2em] text-blue-200 uppercase">Analytics</span></span></a>
-        <span className="rounded-full border border-blue-300/25 px-2.5 py-1 text-[10px] text-blue-200 md:hidden">DEMO</span>
+        <a href="#overview" className="flex items-center gap-3 text-white"><span className="grid h-10 w-10 place-items-center rounded-xl bg-gold text-xl font-black text-navy">A</span><span className="text-lg font-extrabold tracking-tight">Arctron<span className="block text-[10px] font-semibold tracking-[0.2em] text-blue-200 uppercase">Análises</span></span></a>
+        <span className="rounded-full border border-blue-300/25 px-2.5 py-1 text-[10px] text-blue-200 md:hidden">DEMONSTRAÇÃO</span>
       </div>
       <div className="hidden px-4 pt-9 md:block"><p className="mb-3 px-3 text-[10px] font-bold tracking-[0.18em] text-blue-300/60">MENU PRINCIPAL</p>
         <a href="#overview" className="mb-1 flex items-center gap-3 rounded-xl bg-white/10 px-3 py-3 text-sm font-semibold text-white"><Icon name="grid" /> Visão geral <span className="ml-auto h-2 w-2 rounded-full bg-gold" /></a>
         <a href="#purchases" className="flex items-center gap-3 rounded-xl px-3 py-3 text-sm font-medium text-blue-200 transition hover:bg-white/10 hover:text-white"><Icon name="bag" /> Compras</a>
       </div>
-      <div className="mt-auto hidden border-t border-white/10 p-6 md:block"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-400/15 text-sm font-bold text-gold">A</div><div className="text-xs font-bold text-white">Arctron Dashboard<span className="mt-1 block text-[11px] font-normal text-blue-300">Projeto demonstrativo</span></div></div></div>
+      <div className="mt-auto hidden border-t border-white/10 p-6 md:block"><div className="flex items-center gap-3"><div className="grid h-9 w-9 place-items-center rounded-full bg-blue-400/15 text-sm font-bold text-gold">A</div><div className="text-xs font-bold text-white">Painel Arctron<span className="mt-1 block text-[11px] font-normal text-blue-300">Projeto demonstrativo</span></div></div></div>
     </aside>
     <main className="min-w-0 flex-1 md:ml-58" id="overview">
       <header className="flex h-16 items-center justify-between border-b border-slate-200/80 bg-white px-5 sm:px-8 lg:px-11">
-        <div className="text-xs text-slate-400">Workspace <span className="mx-2 text-slate-300">/</span> <strong className="text-slate-600">Visão geral</strong></div>
+        <div className="text-xs text-slate-400">Área de trabalho <span className="mx-2 text-slate-300">/</span> <strong className="text-slate-600">Visão geral</strong></div>
         <div className="flex items-center gap-3"><span className="text-xs text-slate-600">{user.name} · {user.role === 'admin' ? 'Administrador' : 'Leitor'}</span><button className={secondaryButton} type="button" onClick={onLogout} disabled={busy}>Sair</button></div>
       </header>
       <div className="mx-auto max-w-400 px-5 py-8 sm:px-8 lg:px-11 lg:py-10">
@@ -253,9 +262,9 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
           <div className="my-5 grid items-start gap-4 lg:grid-cols-2"><Ranking title="Principais clientes" description="Clientes com maior valor total de compras" items={dashboard.customers} icon="users" /><Ranking title="Produtos em destaque" description="Produtos com maior valor vendido" items={dashboard.products} icon="box" /></div>
         </>}
         <section className={`${panel} mt-5 p-5 sm:p-6`} id="purchases">
-          <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-pitch">TRANSAÇÕES</div><h2 className="text-lg font-bold text-navy">Histórico de compras</h2><p className="mt-1 text-xs text-slate-500">Datas em UTC. Os filtros alteram apenas a listagem; os indicadores acima abrangem todo o período.</p></div><span className="rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-navy-light">{purchases?.total ?? 0} compras</span></div>
+          <div className="flex flex-wrap items-start justify-between gap-3"><div><div className="mb-2 text-[10px] font-bold tracking-[0.16em] text-pitch">TRANSAÇÕES</div><h2 className="text-lg font-bold text-navy">Histórico de compras</h2><p className="mt-1 text-xs text-slate-500">Datas em UTC. Os filtros alteram apenas a listagem; os indicadores acima abrangem todo o período.</p></div><span className="rounded-full bg-blue-50 px-3 py-1.5 text-[11px] font-bold text-navy-light">{purchaseCount} {purchaseCount === 1 ? 'compra' : 'compras'}</span></div>
           <form onSubmit={submit} className="my-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-6">
-            {[['reference', 'Referência', 'Ex.: PED-001'], ['customer', 'Cliente', user.role === 'admin' ? 'Nome, e-mail ou CPF' : 'Nome'], ['date_from', 'Data inicial (UTC)', '', 'date'], ['date_to', 'Data final (UTC)', '', 'date'], ['amount_min', 'Valor mínimo', '0,00', 'number'], ['amount_max', 'Valor máximo', '0,00', 'number']].map(([key, label, placeholder, type]) =>
+            {[['reference', 'Referência', 'Ex.: PED-001 ou Pedido WooCommerce nº 35'], ['customer', 'Cliente', user.role === 'admin' ? 'Nome, e-mail ou CPF' : 'Nome'], ['date_from', 'Data inicial (UTC)', '', 'date'], ['date_to', 'Data final (UTC)', '', 'date'], ['amount_min', 'Valor mínimo', '0,00', 'number'], ['amount_max', 'Valor máximo', '0,00', 'number']].map(([key, label, placeholder, type]) =>
               <label className="text-xs font-semibold text-slate-600" key={key}>{label}<input className="mt-2 block w-full min-w-0 rounded-lg border border-slate-200 bg-slate-50/60 px-3 py-2.5 text-xs font-normal text-slate-700 outline-none transition placeholder:text-slate-400 focus:border-blue-400 focus:ring-2 focus:ring-blue-100" type={type || 'text'} placeholder={placeholder} min={type === 'number' ? '0' : undefined} step={type === 'number' ? '0.01' : undefined} value={filters[key]} onChange={(event) => setFilters({ ...filters, [key]: event.target.value })} /></label>)}
             <div className="flex gap-2 sm:col-span-2 lg:col-span-3 2xl:col-span-6"><button className="flex items-center gap-2 rounded-lg bg-navy px-4 py-2.5 text-xs font-bold text-white transition hover:bg-navy-light" type="submit"><Icon name="search" className="h-4 w-4" /> Buscar compras</button><button type="button" className={secondaryButton} onClick={reset}>Limpar</button></div>
           </form>
@@ -271,7 +280,7 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
           </tbody></table></div>}
           {purchases && purchases.last_page > 1 && <div className="mt-5 flex items-center justify-between text-xs text-slate-500"><span>Página {purchases.current_page} de {purchases.last_page}</span><div className="flex gap-2"><button type="button" className={secondaryButton} disabled={page <= 1 || loading} onClick={() => changePage(page - 1)}>Anterior</button><button type="button" className={secondaryButton} disabled={page >= purchases.last_page || loading} onClick={() => changePage(page + 1)}>Próxima</button></div></div>}
         </section>
-        <footer className="mt-8 flex flex-wrap justify-between gap-2 text-[10px] font-bold tracking-widest text-slate-400">ARCTRON ANALYTICS <span className="font-normal tracking-normal">Dados para decisões melhores.</span></footer>
+        <footer className="mt-8 flex flex-wrap justify-between gap-2 text-[10px] font-bold tracking-widest text-slate-400">ARCTRON ANÁLISES <span className="font-normal tracking-normal">Dados para decisões melhores.</span></footer>
       </div>
     </main>
   </div>
@@ -279,7 +288,7 @@ function Dashboard({ user, onLogout, onSessionExpired, busy, authError }) {
 
 function PurchaseRows({ purchase, expanded, onToggle }) {
   const cell = 'border-b border-slate-100 p-3 text-slate-500'
-  return <><tr><td className={cell}><strong className="text-navy-light">{purchase.reference}</strong></td><td className={cell}><strong className="text-slate-700">{purchase.customer_name}</strong><small className="mt-1 block text-slate-400">{purchase.customer_email}</small></td><td className={cell}>{date(purchase.purchased_at)}</td><td className={cell}>{money(purchase.discount_cents)}</td><td className={cell}><strong className="text-navy">{money(purchase.amount_cents)}</strong></td><td className={cell}><button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-lg text-navy-light hover:bg-blue-50" type="button" onClick={onToggle} aria-expanded={expanded}>{expanded ? '−' : '+'}<span className="sr-only"> detalhes de {purchase.reference}</span></button></td></tr>
+  return <><tr><td className={cell}><strong className="text-navy-light">{referenceLabel(purchase.reference)}</strong></td><td className={cell}><strong className="text-slate-700">{purchase.customer_name}</strong><small className="mt-1 block text-slate-400">{purchase.customer_email}</small></td><td className={cell}>{date(purchase.purchased_at)}</td><td className={cell}>{money(purchase.discount_cents)}</td><td className={cell}><strong className="text-navy">{money(purchase.amount_cents)}</strong></td><td className={cell}><button className="grid h-8 w-8 place-items-center rounded-lg border border-slate-200 text-lg text-navy-light hover:bg-blue-50" type="button" onClick={onToggle} aria-expanded={expanded}>{expanded ? '−' : '+'}<span className="sr-only"> detalhes de {referenceLabel(purchase.reference)}</span></button></td></tr>
     {expanded && <tr><td className="whitespace-normal bg-slate-50 p-4 text-xs leading-6 text-slate-600" colSpan="6"><div><strong className="text-navy">Produtos</strong><ul className="list-inside list-disc">{purchase.items.map((item) => <li key={item.id}>{item.product.name} · {item.quantity} × {money(item.unit_price_cents)}</li>)}</ul>{purchase.customer_cpf && <><span>CPF: {purchase.customer_cpf}</span><p>Observações: {purchase.notes || 'Nenhuma observação.'}</p></>}</div></td></tr>}</>
 }
 
