@@ -5,6 +5,7 @@
 /backend/.env.*
 !/backend/.env.example
 /backend/vendor/
+/docker/woocommerce/arctron-store/vendor/
 /backend/database/*.sqlite
 /backend/node_modules/
 /frontend/node_modules/

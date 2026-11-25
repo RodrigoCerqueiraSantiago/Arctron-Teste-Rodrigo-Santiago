@@ -48,7 +48,9 @@ add_filter('woocommerce_show_page_title', function ($show) {
     return is_shop() ? false : $show;
 });
 
-add_filter('woocommerce_product_get_image', function ($image, $product, $size, $attr, $placeholder) {
+add_filter('woocommerce_product_get_image', function ($image, $product, ...$arguments) {
+    $placeholder = $arguments[2] ?? false;
+
     if ($product->get_image_id() || ! $placeholder) {
         return $image;
     }

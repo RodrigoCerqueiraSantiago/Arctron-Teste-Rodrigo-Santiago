@@ -1,0 +1,6 @@
+{
+  "intelephense.environment.includePaths": [
+    "docker\\woocommerce\\arctron-store\\vendor\\php-stubs\\wordpress-stubs",
+    "docker\\woocommerce\\arctron-store\\vendor\\php-stubs\\woocommerce-stubs"
+  ]
+}
